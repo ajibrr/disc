@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tick Charts — NIFTY / SENSEX (12s–300s)</title>
+<script src="lib/lightweight-charts.standalone.production.js"></script>
+<script src="data.js"></script>
+<script src="config.js"></script>
+<script src="confirmation.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #131722;
+    --panel-2: #1c2030;
+    --border: #2a2e39;
+    --text: #d1d4dc;
+    --muted: #8a8f98;
+    --up: #26a69a;
+    --down: #ef5350;
+    --accent: #2962ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---------- toolbar ---------- */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 8px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: baseline; gap: 8px; margin-right: 6px; }
+  .brand b { font-size: 14px; letter-spacing: .2px; }
+  .brand span { color: var(--muted); font-size: 11px; }
+  .ctrl { display: flex; align-items: center; gap: 7px; }
+  .ctrl > label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+  select {
+    appearance: none;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 26px 5px 9px;
+    font-size: 13px;
+    cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+  select:hover { border-color: #3d4450; }
+  select:focus { outline: none; border-color: var(--accent); }
+  .lock {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(41, 98, 255, .12);
+    border: 1px solid rgba(41, 98, 255, .4);
+    color: #6d9bff;
+    border-radius: 4px;
+    padding: 4px 9px;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .meta { margin-left: auto; color: var(--muted); font-size: 11.5px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .meta b { color: var(--text); font-weight: 600; }
+  .dot { color: var(--border); }
+
+  /* ---------- dual layout ---------- */
+  main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 10px;
+  }
+  @media (max-width: 980px) {
+    main { grid-template-columns: 1fr; grid-auto-rows: minmax(320px, 1fr); overflow-y: auto; }
+    body { overflow: auto; }
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #171b26, #131722);
+  }
+  .tag {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .8px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    color: #fff;
+  }
+  .tag.htf { background: #2962ff33; color: #6d9bff; border: 1px solid #2962ff55; }
+  .tag.ltf { background: #00bcd433; color: #4dd0e1; border: 1px solid #00bcd455; }
+  .panel-head .symbol { font-weight: 700; font-size: 13.5px; }
+  .panel-head .tf-label { color: var(--muted); font-size: 11px; }
+  .panel-head .count { color: var(--muted); font-size: 11px; margin-left: auto; }
+  .icon-btn {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 4px;
+    width: 26px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .icon-btn:hover { color: var(--text); border-color: #3d4450; }
+
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 5px 10px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--muted);
+    border-bottom: 1px solid rgba(42, 46, 57, .6);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .legend .t { color: var(--text); }
+  .legend .k { opacity: .7; margin-right: 3px; }
+  .legend .v { color: var(--text); font-variant-numeric: tabular-nums; }
+  .legend .up { color: var(--up); }
+  .legend .down { color: var(--down); }
+  .chart { flex: 1; min-height: 0; position: relative; }
+  .rsi-legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 3px 10px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .rsi-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .rsi-legend .t { color: var(--text); }
+  .rsi-legend .rsi-v { color: #6d9bff; }
+  .rsi-legend .ma-v { color: #ffb020; }
+  .rsi-chart { height: 130px; flex: none; border-top: 1px solid rgba(42, 46, 57, .6); }
+
+  /* ---------- HTF confirmation ---------- */
+  .conf-legend {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 3px 10px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    border-bottom: 1px solid rgba(42, 46, 57, .6);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .conf-legend .t { color: var(--text); }
+  .conf-legend .grp { letter-spacing: .3px; opacity: .75; }
+  .conf-legend .ok { color: var(--up); font-weight: 700; }
+  .conf-legend .bad { color: var(--down); font-weight: 700; }
+  .conf-legend .st { font-weight: 700; }
+  .conf-legend .st.a { color: #6d9bff; }
+  .conf-legend .st.b { color: #ffb020; }
+  .conf-legend .st.no { color: var(--muted); }
+  .conf-legend .st.na { color: #6b7280; }
+  .conf-legend .hint { opacity: .7; }
+
+  .conf-badge {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    background: var(--panel-2);
+  }
+  .conf-badge.on { display: flex; }
+  .conf-badge.a { color: #6d9bff; border-color: #2962ff55; background: rgba(41, 98, 255, .12); }
+  .conf-badge.b { color: #ffb020; border-color: #ff980055; background: rgba(255, 152, 0, .12); }
+
+  .switch { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; font-size: 12px; color: var(--text); }
+  .switch input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+
+  /* -2 outline: absolutely positioned above the chart canvases (z-index 1/2) */
+  .conf-outline {
+    position: absolute;
+    display: none;
+    border: 1px solid #2962ff;
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 5;
+    box-shadow: 0 0 0 1px rgba(41, 98, 255, .2);
+  }
+</style>
+</head>
+<body>
+
+<header class="toolbar">
+  <div class="brand"><b>TickCharts</b><span>NSE / BSE second data</span></div>
+
+  <div class="ctrl">
+    <label for="instrument">Instrument</label>
+    <select id="instrument"></select>
+  </div>
+
+  <div class="ctrl">
+    <label for="date">Date</label>
+    <select id="date"></select>
+  </div>
+
+  <div class="lock" id="lock" title="LTF (signal) and HTF (confirmation) are locked at a 5:1 ratio">
+    <span>🔒</span><span id="lock-text">5:1 locked</span>
+  </div>
+
+  <div class="ctrl">
+    <label class="switch" title="Highlight HTF candle-pattern matches on both charts">
+      <input type="checkbox" id="confirm-toggle" checked />
+      HTF Confirmation
+    </label>
+  </div>
+
+  <div class="conf-badge" id="conf-badge" title="State of the latest completed HTF candle"></div>
+
+  <div class="meta" id="meta"></div>
+</header>
+
+<main>
+  <section class="panel" data-panel="htf">
+    <div class="panel-head">
+      <span class="tag htf" title="Confirmation timeframe — always 5× the LTF">HTF</span>
+      <span class="symbol" data-role="symbol">—</span>
+      <span class="tf-label">Timeframe</span>
+      <select data-role="tf"></select>
+      <span class="count" data-role="count"></span>
+      <button class="icon-btn" data-role="fit" title="Fit content">⤢</button>
+    </div>
+    <div class="legend" data-role="legend"></div>
+    <div class="conf-legend" data-role="conf-legend"></div>
+    <div class="chart" data-role="chart"></div>
+    <div class="rsi-legend" data-role="rsi-legend"></div>
+    <div class="rsi-chart" data-role="rsi-chart"></div>
+  </section>
+
+  <section class="panel" data-panel="ltf">
+    <div class="panel-head">
+      <span class="tag ltf" title="Signal timeframe — always 1/5 of the HTF">LTF</span>
+      <span class="symbol" data-role="symbol">—</span>
+      <span class="tf-label">Timeframe</span>
+      <select data-role="tf"></select>
+      <span class="count" data-role="count"></span>
+      <button class="icon-btn" data-role="fit" title="Fit content">⤢</button>
+    </div>
+    <div class="legend" data-role="legend"></div>
+    <div class="conf-legend" data-role="conf-legend"></div>
+    <div class="chart" data-role="chart"></div>
+    <div class="rsi-legend" data-role="rsi-legend"></div>
+    <div class="rsi-chart" data-role="rsi-chart"></div>
+  </section>
+</main>
+
+<script>
+'use strict';
+
+/* ---------------- config ---------------- */
+
+/* Locked 5:1 pairing: LTF (signal) -> HTF (confirmation).
+   12s->60s, 36s->180s, 60s->300s, 180s->900s(15m), 300s->1500s(25m) */
+const TF_LABELS = {
+  12: '12s', 36: '36s', 60: '1m', 180: '3m',
+  300: '5m', 900: '15m', 1500: '25m',
+};
+const LTF_OPTIONS = [12, 36, 60, 180, 300];      // signal timeframes
+const HTF_OF = { 12: 60, 36: 180, 60: 300, 180: 900, 300: 1500 };
+const HTF_OPTIONS = [60, 180, 300, 900, 1500];   // confirmation timeframes
+const LTF_OF = Object.fromEntries(Object.entries(HTF_OF).map(([l, h]) => [h, Number(l)]));
+const DEFAULTS = { ltf: 60, htf: 300 };          // 1m signal / 5m confirmation
+const TZ = 'Asia/Kolkata';
+const DATA = window.CHART_DATA || { instruments: {} };
+const TC = window.TickConfirm;   // pure rule module (charts/confirmation.js)
+
+/* HTF filters — from config/htf.json via `node charts/build-config.js`; run that AND
+   reload this page after every config edit (the page reads config.js once at load).
+   Two independent sections, each three-mode: off (original behavior) / active (gate
+   applies) / error (fail closed: never matches, problem displayed — htf_sma.md §3.4
+   and Part II P6). SLOPE_FILTER carries the rsi normalizer on `.rsi` so both
+   sections travel through one cache key without changing the getStates wiring. */
+const SLOPE_FILTER = TC.normalizeFilter(window.HTF_CONFIG);
+SLOPE_FILTER.rsi = TC.normalizeSmaRsiFilter(window.HTF_CONFIG);
+const CONFIG_PROBLEMS = (() => {
+  const sec = (cfg, name) => (cfg.problems || []).map((p) =>
+    (p.startsWith('sma_') || p.startsWith('config')) ? p : name + ': ' + p);
+  const all = sec(SLOPE_FILTER, 'sma_slope_filter').concat(sec(SLOPE_FILTER.rsi, 'sma_rsi_filter'));
+  return all.filter((p, i) => all.indexOf(p) === i);   // dedupe (e.g. missing config.js twice)
+})();
+const CONFIG_ERROR = SLOPE_FILTER.mode === 'error' || SLOPE_FILTER.rsi.mode === 'error';
+if (CONFIG_ERROR) console.warn('[config] ' + CONFIG_PROBLEMS.join('; '));
+
+/* ---------------- time formatting (always IST) ---------------- */
+
+const fmtTime = new Intl.DateTimeFormat('en-GB', {
+  timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+});
+const fmtHM = new Intl.DateTimeFormat('en-GB', {
+  timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+});
+const fmtDay = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: '2-digit', month: 'short' });
+const fmtMonth = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, month: 'short' });
+const fmtYear = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, year: 'numeric' });
+
+// TimeScale tick-mark types from lightweight-charts v4
+const TickMarkType = { Year: 0, Month: 1, DayOfMonth: 2, Time: 3, TimeWithSeconds: 4 };
+
+function tickMarkLabel(time, type) {
+  const d = new Date(time * 1000);
+  switch (type) {
+    case TickMarkType.Year: return fmtYear.format(d);
+    case TickMarkType.Month: return fmtMonth.format(d);
+    case TickMarkType.DayOfMonth: return fmtDay.format(d);
+    case TickMarkType.TimeWithSeconds: return fmtTime.format(d);
+    default: return fmtHM.format(d);
+  }
+}
+
+/* ---------------- tick data ---------------- */
+
+const tickCache = new Map();
+
+/** Flatten the stored segments of one instrument/date into parallel arrays. */
+function getTicks(symbol, date) {
+  const key = symbol + '|' + date;
+  if (tickCache.has(key)) return tickCache.get(key);
+
+  const day = DATA.instruments[symbol] && DATA.instruments[symbol].dates[date];
+  if (!day) return null;
+
+  let n = 0;
+  for (const seg of day.segments) n += seg.prices.length;
+
+  const times = new Float64Array(n);
+  const prices = new Float64Array(n);
+  let i = 0;
+  for (const seg of day.segments) {
+    for (let k = 0; k < seg.prices.length; k++) {
+      times[i] = seg.start + k;
+      prices[i] = seg.prices[k];
+      i++;
+    }
+  }
+  const out = { times, prices, meta: day };
+  tickCache.set(key, out);
+  return out;
+}
+
+/** Aggregate 1s ticks into OHLC candles of `tf` seconds, forward-filling gaps. */
+function buildCandles(ticks, tf) {
+  const { times, prices } = ticks;
+  const start = times[0];
+  const out = [];
+  let cur = null;
+
+  for (let i = 0; i < times.length; i++) {
+    const t = times[i];
+    const p = prices[i];
+    const bucket = start + Math.floor((t - start) / tf) * tf;
+
+    if (cur === null || bucket !== cur.time) {
+      // carry the last close through any fully-missed buckets (feed gaps)
+      if (cur) {
+        for (let f = cur.time + tf; f < bucket; f += tf) {
+          out.push({ time: f, open: cur.close, high: cur.close, low: cur.close, close: cur.close });
+        }
+      }
+      cur = { time: bucket, open: p, high: p, low: p, close: p };
+      out.push(cur);
+    } else {
+      if (p > cur.high) cur.high = p;
+      if (p < cur.low) cur.low = p;
+    }
+    cur.close = p;
+  }
+  return out;
+}
+
+/* ---------------- indicators ---------------- */
+
+/** Simple moving average; null until `period` values are available. */
+function smaNullable(values, period) {
+  const out = new Array(values.length).fill(null);
+  for (let i = period - 1; i < values.length; i++) {
+    let sum = 0;
+    let ok = true;
+    for (let k = i - period + 1; k <= i; k++) {
+      if (values[k] == null) { ok = false; break; }
+      sum += values[k];
+    }
+    if (ok) out[i] = sum / period;
+  }
+  return out;
+}
+
+/** Wilder RSI 14 (same smoothing TradingView uses). */
+function rsi(closes, period = 14) {
+  const out = new Array(closes.length).fill(null);
+  if (closes.length <= period) return out;
+
+  let gain = 0, loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) gain += d; else loss -= d;
+  }
+  let ag = gain / period;
+  let al = loss / period;
+  const toRsi = () => (al === 0 ? 100 : 100 - 100 / (1 + ag / al));
+  out[period] = toRsi();
+
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    ag = (ag * (period - 1) + (d > 0 ? d : 0)) / period;
+    al = (al * (period - 1) + (d < 0 ? -d : 0)) / period;
+    out[i] = toRsi();
+  }
+  return out;
+}
+
+/* ---------------- chart panel ---------------- */
+
+const CHART_OPTS = {
+  layout: {
+    background: { type: 'solid', color: '#131722' },
+    textColor: '#d1d4dc',
+    fontSize: 11,
+  },
+  grid: {
+    vertLines: { color: 'rgba(42, 46, 57, 0.6)' },
+    horzLines: { color: 'rgba(42, 46, 57, 0.6)' },
+  },
+  crosshair: {
+    mode: 0, // CrosshairMode.Normal
+    vertLine: {
+      color: '#758696', width: 1, style: 2, // dashed
+      labelBackgroundColor: '#363a45',
+    },
+    horzLine: {
+      color: '#758696', width: 1, style: 2,
+      labelBackgroundColor: '#363a45',
+    },
+  },
+  rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.12, bottom: 0.12 } },
+  timeScale: {
+    borderColor: '#2a2e39',
+    timeVisible: true,
+    secondsVisible: true,
+    rightOffset: 2,
+    tickMarkFormatter: (time, type) => tickMarkLabel(time, type),
+  },
+  localization: {
+    locale: 'en-GB',
+    timeFormatter: (time) => fmtTime.format(new Date(time * 1000)),
+  },
+};
+
+function fmtPrice(v, decimals) {
+  return v == null ? '—' : Number(v).toFixed(decimals);
+}
+
+class Panel {
+  constructor(root, key) {
+    this.key = key;
+    this.el = root;
+    this.symbolEl = root.querySelector('[data-role="symbol"]');
+    this.tfEl = root.querySelector('[data-role="tf"]');
+    this.countEl = root.querySelector('[data-role="count"]');
+    this.legendEl = root.querySelector('[data-role="legend"]');
+    this.chartEl = root.querySelector('[data-role="chart"]');
+    this.rsiLegendEl = root.querySelector('[data-role="rsi-legend"]');
+    this.rsiChartEl = root.querySelector('[data-role="rsi-chart"]');
+
+    for (const sec of (key === 'htf' ? HTF_OPTIONS : LTF_OPTIONS)) {
+      const o = document.createElement('option');
+      o.value = String(sec);
+      o.textContent = TF_LABELS[sec];
+      this.tfEl.appendChild(o);
+    }
+    this.tfEl.value = String(DEFAULTS[key]);
+    this.tfEl.addEventListener('change', () => {
+      this.tfSec = Number(this.tfEl.value);
+      this.render(true);
+    });
+    root.querySelector('[data-role="fit"]').addEventListener('click', () => {
+      this.chart.timeScale().fitContent();
+      this.rsiChart.timeScale().fitContent();
+    });
+
+    this.chart = LightweightCharts.createChart(this.chartEl, CHART_OPTS);
+    this.series = this.chart.addCandlestickSeries({
+      upColor: '#26a69a', downColor: '#ef5350',
+      borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+      wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    });
+
+    // SMA 9 overlay, drawn on the same (right) price scale as the candles
+    this.smaSeries = this.chart.addLineSeries({
+      color: '#ffb020', lineWidth: 2, title: 'SMA 9',
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    });
+
+    // SMA 44 — LTF panel only, green
+    this.sma44Series = key === 'ltf'
+      ? this.chart.addLineSeries({
+          color: '#00e676', lineWidth: 2, title: 'SMA 44',
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        })
+      : null;
+
+    // RSI sub-panel: its own chart instance, time-synced to the price chart
+    this.rsiChart = LightweightCharts.createChart(this.rsiChartEl, {
+      ...CHART_OPTS,
+      rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.2, bottom: 0.2 } },
+    });
+    const rsiFmt = { type: 'custom', formatter: (v) => v.toFixed(1), minMove: 0.1 };
+    const pinScale = () => ({ priceRange: { minValue: 0, maxValue: 100 } });
+    this.rsiSeries = this.rsiChart.addLineSeries({
+      color: '#2962ff', lineWidth: 2, title: 'RSI 14',
+      priceLineVisible: false, priceFormat: rsiFmt, autoscaleInfoProvider: pinScale,
+    });
+    this.rsiMaSeries = this.rsiChart.addLineSeries({
+      color: '#ffb020', lineWidth: 1, title: 'SMA 14 (RSI)',
+      priceLineVisible: false, priceFormat: rsiFmt, autoscaleInfoProvider: pinScale,
+    });
+    for (const lvl of [70, 30]) {
+      this.rsiSeries.createPriceLine({
+        price: lvl,
+        color: lvl === 70 ? 'rgba(239, 83, 80, .6)' : 'rgba(38, 166, 154, .6)',
+        lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: String(lvl),
+      });
+    }
+
+    /* ---------- HTF pattern confirmation visuals ---------- */
+    this.confirmLegendEl = root.querySelector('[data-role="conf-legend"]');
+    this.states = new Map();      // HTF: closeTime -> state
+    this.ltfBands = new Map();    // LTF: candleTime -> state
+    this.bandWindows = [];
+    this.lastState = null;
+    this.lastLtfState = null;
+
+    // HTF only: −2 outline box as a DOM overlay stacked above the canvases (§8 edit 3)
+    if (key === 'htf') {
+      this.outlineEl = document.createElement('div');
+      this.outlineEl.className = 'conf-outline';
+      this.chartEl.appendChild(this.outlineEl);
+      this._outlineRaf = 0;
+    }
+
+    // LTF only: band primitive painted inside the chart canvas at bottom z-order (§5.4)
+    if (key === 'ltf') {
+      this._bandRenderer = { draw: (target) => this.drawBands(target) };
+      this._bandView = {
+        update() {},
+        zOrder() { return 'bottom'; },
+        renderer: () => this._bandRenderer,
+      };
+      this.series.attachPrimitive({
+        attached: (p) => { this._bandRU = p.requestUpdate; },
+        detached: () => { this._bandRU = null; },
+        paneViews: () => [this._bandView],
+      });
+    }
+
+    this.tfSec = Number(this.tfEl.value);
+    this.candles = [];
+    this.decimals = 2;
+    this.seriesData = new Map();
+    this.rsiAt = new Map();
+    this.rsiMaAt = new Map();
+    this._rangeLock = false;
+    this._crossLock = false;
+
+    // keep both time axes in step inside the panel.
+    // LWC delivers these callbacks asynchronously, so a plain boolean guard
+    // misses the echo: instead, skip when the target already has that range.
+    const linkRange = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange((r) => {
+      if (!r) return;
+      const cur = b.timeScale().getVisibleLogicalRange();
+      if (cur && Math.abs(cur.from - r.from) < 1e-6 && Math.abs(cur.to - r.to) < 1e-6) return;
+      try { b.timeScale().setVisibleLogicalRange({ from: r.from, to: r.to }); } catch (e) { /* torn down */ }
+    });
+    linkRange(this.chart, this.rsiChart);
+    linkRange(this.rsiChart, this.chart);
+
+    this.chart.subscribeCrosshairMove((param) => {
+      const bar = param.time ? this.seriesData.get(param.time) : null;
+      this.drawLegend(bar || this.candles[this.candles.length - 1]);
+      this.drawRsiLegend(
+        param.time
+          ? { time: param.time, rsi: this.rsiAt.get(param.time), ma: this.rsiMaAt.get(param.time) }
+          : this.lastRsiPoint
+      );
+      if (this._crossLock) return;
+      this._crossLock = true;
+      if (param.time) {
+        const v = this.rsiAt.get(param.time);
+        if (v == null) this.rsiChart.clearCrosshairPosition();
+        else this.rsiChart.setCrosshairPosition(v, param.time, this.rsiSeries);
+      } else {
+        this.rsiChart.clearCrosshairPosition();
+      }
+      this._crossLock = false;
+    });
+
+    this.rsiChart.subscribeCrosshairMove((param) => {
+      this.drawRsiLegend(
+        param.time
+          ? { time: param.time, rsi: this.rsiAt.get(param.time), ma: this.rsiMaAt.get(param.time) }
+          : this.lastRsiPoint
+      );
+      this.drawLegend(param.time ? this.seriesData.get(param.time) : this.candles[this.candles.length - 1]);
+      if (this._crossLock) return;
+      this._crossLock = true;
+      if (param.time) {
+        const c = this.seriesData.get(param.time);
+        if (c) this.chart.setCrosshairPosition(c.close, param.time, this.series);
+        else this.chart.clearCrosshairPosition();
+      } else {
+        this.chart.clearCrosshairPosition();
+      }
+      this._crossLock = false;
+    });
+
+    // readout row — a NEW subscription; the crosshair handlers above are untouched
+    this.chart.subscribeCrosshairMove((param) => {
+      if (this.key === 'htf') {
+        this.drawConfirmLegend(param.time ? this.states.get(param.time + this.tfSec) : this.lastState, true);
+      } else {
+        this.drawConfirmLegend(param.time ? this.ltfBands.get(param.time) : this.lastLtfState, false);
+      }
+    });
+
+    if (this.outlineEl) {
+      this.chart.timeScale().subscribeVisibleTimeRangeChange(() => this.scheduleOutline());
+    }
+
+    const watch = (el, target) => new ResizeObserver(() => {
+      const w = el.clientWidth, h = el.clientHeight;
+      if (w > 0 && h > 0) {
+        target.applyOptions({ width: w, height: h });
+        if (this === window.__panels[0] || this === window.__panels[1]) this.scheduleOutline();
+      }
+    }).observe(el);
+    watch(this.chartEl, this.chart);
+    watch(this.rsiChartEl, this.rsiChart);
+  }
+
+  /* ---------- confirmation rendering ---------- */
+
+  /** Paint the five-candle windows into the chart canvas at bottom z-order (§5.4). */
+  drawBands(target) {
+    if (!app.confirmOn || !this.bandWindows.length) return;
+    if (!target || typeof target.useMediaCoordinateSpace !== 'function') return;
+    target.useMediaCoordinateSpace(({ context }) => {
+      const h = context.canvas.height;
+      for (const w of this.bandWindows) {
+        const x1 = this.chart.timeScale().timeToCoordinate(w.from);
+        const x2 = this.chart.timeScale().timeToCoordinate(w.to);
+        if (x1 == null || x2 == null || !(x2 > x1)) continue;
+        context.fillStyle = w.pattern === 'A' ? 'rgba(41,98,255,0.10)' : 'rgba(255,152,0,0.10)';
+        context.fillRect(x1, 0, x2 - x1, h);
+      }
+    });
+  }
+
+  setBandWindows(windows) {
+    this.bandWindows = windows || [];
+    if (this._bandRU) this._bandRU();
+  }
+
+  /** Position the −2 outline box over its candle (HTF only). */
+  updateOutline() {
+    const el = this.outlineEl;
+    if (!el) return;
+    const show = app.confirmOn && this.outlineTime != null && this.outlineHigh != null;
+    if (!show) { el.style.display = 'none'; return; }
+
+    const ts = this.chart.timeScale();
+    const x1 = ts.timeToCoordinate(this.outlineTime);
+    const x2 = ts.timeToCoordinate(this.outlineTime + this.tfSec);
+    const y1 = this.series.priceToCoordinate(this.outlineHigh);
+    const y2 = this.series.priceToCoordinate(this.outlineLow);
+    if (x1 == null || x2 == null || y1 == null || y2 == null) { el.style.display = 'none'; return; }
+
+    const pad = 3;
+    el.style.display = 'block';
+    el.style.left = (Math.min(x1, x2) - pad) + 'px';
+    el.style.width = (Math.abs(x2 - x1) + pad * 2) + 'px';
+    el.style.top = (Math.min(y1, y2) - pad) + 'px';
+    el.style.height = (Math.abs(y2 - y1) + pad * 2) + 'px';
+  }
+
+  scheduleOutline() {
+    if (!this.outlineEl || this._outlineRaf) return;
+    this._outlineRaf = requestAnimationFrame(() => {
+      this._outlineRaf = 0;
+      this.updateOutline();
+    });
+  }
+
+  /** Remove every confirmation visual without touching any series data. */
+  clearConfirm() {
+    this.states = new Map();
+    this.ltfBands = new Map();
+    this.lastState = null;
+    this.lastLtfState = null;
+    this.outlineTime = null;
+    this.outlineHigh = null;
+    this.outlineLow = null;
+    this.series.setMarkers([]);
+    this.setBandWindows([]);
+    if (this.outlineEl) this.outlineEl.style.display = 'none';
+    if (this.confirmLegendEl) this.confirmLegendEl.innerHTML = '';
+  }
+
+  /** Readout row: HTF shows the per-condition breakdown, LTF shows its window state. */
+  drawConfirmLegend(state, isHtf) {
+    const el = this.confirmLegendEl;
+    if (!el) return;
+    if (!app.confirmOn) { el.innerHTML = ''; return; }
+    if (!state) { el.innerHTML = '<span>' + (isHtf ? 'HTF CONF' : 'HTF → LTF') + ' <b>—</b></span>'; return; }
+
+    const stamp = fmtTime.format(new Date((isHtf ? state.closeTime : state.closeTime) * 1000));
+
+    if (!isHtf) {
+      el.innerHTML =
+        '<span class="t">' + stamp + '</span>' +
+        '<span class="hint">window ends</span>' + stateLabel(state);
+      return;
+    }
+
+    // fail-closed config error (approved Q3 / P6): replaces the per-candle
+    // breakdown; shows the first problem of EITHER section, section-prefixed
+    if (CONFIG_ERROR) {
+      el.innerHTML =
+        '<span class="t">' + stamp + '</span>' +
+        '<span class="st na">Config error</span>' +
+        '<span class="hint">' + CONFIG_PROBLEMS[0] + '</span>';
+      return;
+    }
+
+    if (state.state === TC.STATE.UNAVAILABLE) {
+      el.innerHTML =
+        '<span class="t">' + stamp + '</span>' +
+        '<span class="st na">Unavailable</span>' +
+        '<span class="hint">' + (state.reason === 'insufficient-history' ? 'first 5 candles' : 'incomplete history') + '</span>';
+      return;
+    }
+
+    const c = state.conditions;
+    const mark = (b) => b ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>';
+    // chips appear only in mode 'active' — an off section renders nothing (T19/T26/T31)
+    const slopeChip = (gate) => SLOPE_FILTER.mode !== 'active' ? '' :
+      ' <span class="grp">slope</span> ' +
+      (c.slope == null ? '<span class="hint">–</span>'
+                       : (c.slope > 0 ? '+' : '') + c.slope.toFixed(3) + ' ' + mark(gate));
+    const rsiChip = (gate) => SLOPE_FILTER.rsi.mode !== 'active' ? '' :
+      ' <span class="grp">rsi</span> ' +
+      (c.rsi == null ? '<span class="hint">–</span>'
+                     : c.rsi.toFixed(2) + ' ' + mark(gate));
+    el.innerHTML =
+      '<span class="t">' + stamp + '</span>' +
+      '<span class="grp">A:</span> c1 ' + mark(c.c1) + ' c3 ' + mark(c.red2) + ' c4 ' + mark(c.red1) +
+        ' 5A ' + mark(c.c5aA) + ' 5B ' + mark(c.c5bA) + slopeChip(c.slopeA) + rsiChip(c.rsiA) +
+      '<span class="grp">B:</span> c1 ' + mark(c.c2) + ' c3 ' + mark(c.green2) + ' c4 ' + mark(c.green1) +
+        ' 5A ' + mark(c.c5aB) + ' 5B ' + mark(c.c5bB) + slopeChip(c.slopeB) + rsiChip(c.rsiB) +
+      stateLabel(state);
+  }
+
+  /* ---------- end confirmation rendering ---------- */
+
+  render(fit) {
+    const ticks = getTicks(app.symbol, app.date);
+    this.decimals = (DATA.instruments[app.symbol] || {}).decimals || 2;
+    this.symbolEl.textContent = app.symbol + (app.date ? ' · ' + app.date : '');
+
+    if (!ticks) {
+      this.series.setData([]);
+      this.smaSeries.setData([]);
+      if (this.sma44Series) this.sma44Series.setData([]);
+      this.rsiSeries.setData([]);
+      this.rsiMaSeries.setData([]);
+      this.countEl.textContent = 'no data';
+      this.legendEl.innerHTML = '';
+      this.rsiLegendEl.innerHTML = '';
+      return;
+    }
+
+    this.candles = buildCandles(ticks, this.tfSec);
+    this.series.setData(this.candles);
+    this.seriesData = new Map(this.candles.map((c) => [c.time, c]));
+    this.countEl.textContent = this.candles.length + ' bars · ' + TF_LABELS[this.tfSec];
+
+    /* indicators are computed from THIS panel's candles only */
+    const closes = this.candles.map((c) => c.close);
+    const sma9 = smaNullable(closes, 9);
+    const sma44 = this.sma44Series ? smaNullable(closes, 44) : null;
+    const rsi14 = rsi(closes, 14);              // Wilder RSI 14
+    const rsiMa14 = smaNullable(rsi14, 14);     // SMA 14 of the RSI values
+
+    this.smaSeries.setData(
+      this.candles.flatMap((c, i) => (sma9[i] == null ? [] : [{ time: c.time, value: sma9[i] }]))
+    );
+    if (this.sma44Series) {
+      this.sma44Series.setData(
+        this.candles.flatMap((c, i) => (sma44[i] == null ? [] : [{ time: c.time, value: sma44[i] }]))
+      );
+    }
+
+    this.rsiAt = new Map();
+    this.rsiMaAt = new Map();
+    const rsiData = [], maData = [];
+    this.candles.forEach((c, i) => {
+      if (rsi14[i] != null) {
+        this.rsiAt.set(c.time, rsi14[i]);
+        rsiData.push({ time: c.time, value: rsi14[i] });
+      }
+      if (rsiMa14[i] != null) {
+        this.rsiMaAt.set(c.time, rsiMa14[i]);
+        maData.push({ time: c.time, value: rsiMa14[i] });
+      }
+    });
+    this.rsiSeries.setData(rsiData);
+    this.rsiMaSeries.setData(maData);
+    this.lastRsiPoint = rsiData.length
+      ? { time: rsiData[rsiData.length - 1].time, rsi: rsiData[rsiData.length - 1].value,
+          ma: maData.length ? maData[maData.length - 1].value : null }
+      : null;
+
+    this.drawLegend(this.candles[this.candles.length - 1]);
+    this.drawRsiLegend(this.lastRsiPoint);
+    if (fit !== false) {
+      this.chart.timeScale().fitContent();
+      this.rsiChart.timeScale().fitContent();
+    }
+  }
+
+  drawRsiLegend(point) {
+    if (!point || point.rsi == null) {
+      this.rsiLegendEl.innerHTML = '<span>RSI 14 <b>—</b></span><span>SMA 14 <b>—</b></span>';
+      return;
+    }
+    const t = fmtTime.format(new Date(point.time * 1000));
+    this.rsiLegendEl.innerHTML =
+      '<span class="t">' + t + '</span>' +
+      '<span>RSI 14 <b class="rsi-v">' + point.rsi.toFixed(2) + '</b></span>' +
+      '<span>SMA 14 <b class="ma-v">' + (point.ma == null ? '—' : point.ma.toFixed(2)) + '</b></span>';
+  }
+
+  drawLegend(bar) {
+    if (!bar) { this.legendEl.innerHTML = ''; return; }
+    const up = bar.close >= bar.open;
+    const d = this.decimals;
+    const stamp = fmtTime.format(new Date(bar.time * 1000));
+    this.legendEl.innerHTML =
+      '<span class="t">' + stamp + '</span>' +
+      '<span><span class="k">O</span><span class="v">' + fmtPrice(bar.open, d) + '</span></span>' +
+      '<span><span class="k">H</span><span class="v">' + fmtPrice(bar.high, d) + '</span></span>' +
+      '<span><span class="k">L</span><span class="v">' + fmtPrice(bar.low, d) + '</span></span>' +
+      '<span><span class="k">C</span><span class="v">' + fmtPrice(bar.close, d) + '</span></span>' +
+      '<span class="' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + ' ' + bar.close.toFixed(d) + '</span>';
+  }
+}
+
+/* ---------------- app state & dropdowns ---------------- */
+
+const app = { symbol: '', date: '', confirmOn: true };
+
+/** Compact state label used by both readout rows. */
+function stateLabel(s) {
+  if (!s) return '';
+  if (s.state === TC.STATE.MATCHED) {
+    return '<span class="st ' + s.pattern.toLowerCase() + '">Matched (Pattern ' + s.pattern + ')</span>';
+  }
+  if (s.state === TC.STATE.UNAVAILABLE) return '<span class="st na">Unavailable</span>';
+  return '<span class="st no">Not Matched</span>';
+}
+const instrumentEl = document.getElementById('instrument');
+const dateEl = document.getElementById('date');
+const metaEl = document.getElementById('meta');
+
+function fillInstruments() {
+  const names = Object.keys(DATA.instruments).sort();
+  instrumentEl.innerHTML = '';
+  for (const n of names) {
+    const o = document.createElement('option');
+    o.value = n;
+    o.textContent = n + (DATA.instruments[n].exchange ? ' · ' + DATA.instruments[n].exchange : '');
+    instrumentEl.appendChild(o);
+  }
+  if (names.length) app.symbol = names[0];
+  instrumentEl.value = app.symbol;
+}
+
+function fillDates() {
+  const inst = DATA.instruments[app.symbol] || { dates: {} };
+  const dates = Object.keys(inst.dates).sort().reverse();
+  dateEl.innerHTML = '';
+  for (const d of dates) {
+    const o = document.createElement('option');
+    o.value = d;
+    o.textContent = d + (d === dates[0] ? '  (latest)' : '');
+    dateEl.appendChild(o);
+  }
+  app.date = dates[0] || '';
+  dateEl.value = app.date;
+  dateEl.disabled = dates.length <= 1;
+}
+
+function renderMeta() {
+  const inst = DATA.instruments[app.symbol];
+  const day = inst && inst.dates[app.date];
+  if (!day) { metaEl.textContent = 'No data loaded'; return; }
+  const parts = [
+    ['Session', day.firstTick + ' → ' + day.lastTick + ' IST'],
+    ['Ticks', day.ticks.toLocaleString('en-GB')],
+    ['Feed gaps', String(day.gaps)],
+    ['Expiry', inst.expiry || '—'],
+  ];
+  metaEl.innerHTML = parts
+    .map(([k, v]) => '<span>' + k + ' <b>' + v + '</b></span>')
+    .join('<span class="dot">·</span>');
+}
+
+const panels = [
+  new Panel(document.querySelector('[data-panel="htf"]'), 'htf'),
+  new Panel(document.querySelector('[data-panel="ltf"]'), 'ltf'),
+];
+const [htfPanel, ltfPanel] = panels;
+window.__panels = panels; // handy for poking at series data from devtools
+
+function updateLockChip() {
+  document.getElementById('lock-text').textContent =
+    TF_LABELS[ltfPanel.tfSec] + ' → ' + TF_LABELS[htfPanel.tfSec] + ' · 5:1 locked';
+}
+
+/* ---------- HTF pattern confirmation ---------- */
+
+const confirmCache = new Map();
+
+/** Cache key carries the filter mode+values so config changes can never serve stale states. */
+function confirmFilterKey(cfg) {
+  if (!cfg) return 'off';
+  const part = (c) => !c || c.mode === 'off' ? 'off'
+    : c.mode === 'error' ? 'error|' + c.problems.join(';')
+    : 'active|' + JSON.stringify(c.filter);
+  return part(cfg) + '#' + part(cfg.rsi);   // slope + rsi sections both in the key
+}
+
+/** §6.9 — evaluated once per (symbol, date, htfSec, filter); interactions never recompute. */
+function getStates(htfCandles, htfSec, sessionEndTick, filterCfg) {
+  const key = app.symbol + '|' + app.date + '|' + htfSec + '|' + confirmFilterKey(filterCfg);
+  if (confirmCache.has(key)) return confirmCache.get(key);
+  const v = TC.evaluate(htfCandles, { htfSec, sessionEndTick, filter: filterCfg });
+  confirmCache.set(key, v);
+  return v;
+}
+
+/**
+ * Single source of truth (§6.10): one evaluate() result feeds the badge, the HTF
+ * markers, the −2 outline, the LTF bands and both readouts, so they cannot disagree.
+ * Writes no series data — only markers, a primitive payload and DOM positions.
+ */
+function applyConfirmation() {
+  const badge = document.getElementById('conf-badge');
+  for (const p of panels) p.clearConfirm();
+
+  if (!app.confirmOn) {
+    badge.className = 'conf-badge';
+    badge.textContent = '';
+    return;
+  }
+
+  const ticks = getTicks(app.symbol, app.date);
+  if (!ticks || !htfPanel.candles.length || !ltfPanel.candles.length) {
+    badge.className = 'conf-badge';
+    badge.textContent = '';
+    return;
+  }
+
+  const sessionEndTick = ticks.meta.sessionEnd;
+  const htfSec = htfPanel.tfSec, ltfSec = ltfPanel.tfSec;
+  const states = getStates(htfPanel.candles, htfSec, sessionEndTick, SLOPE_FILTER);
+  const ltfBands = TC.mapToLtf(ltfPanel.candles, states, { htfSec, ltfSec });
+
+  htfPanel.states = states;
+  ltfPanel.ltfBands = ltfBands;
+
+  // HTF markers — one setMarkers call; No Not-Matched markers (§11 decision 2)
+  const markers = [];
+  Array.from(states.values())
+    .sort((a, b) => a.closeTime - b.closeTime)
+    .forEach((s) => {
+      if (s.state === TC.STATE.MATCHED) {
+        markers.push({
+          time: s.candleTime,
+          position: s.pattern === 'A' ? 'aboveBar' : 'belowBar',
+          color: s.pattern === 'A' ? '#2962ff' : '#ff9800',
+          shape: s.pattern === 'A' ? 'arrowUp' : 'arrowDown',
+          text: 'Pattern ' + s.pattern,
+        });
+      } else if (s.state === TC.STATE.UNAVAILABLE) {
+        markers.push({ time: s.candleTime, position: 'aboveBar', color: '#6b7280', shape: 'circle', text: '–' });
+      }
+    });
+  htfPanel.series.setMarkers(markers);
+
+  // −2 outline: the candle being judged by the latest evaluable state
+  const last = TC.latest(states, sessionEndTick);
+  htfPanel.lastState = last;
+  htfPanel.outlineTime = null;
+  if (last && last.state !== TC.STATE.UNAVAILABLE && last.c2Time != null) {
+    const c2 = htfPanel.seriesData.get(last.c2Time);
+    if (c2) {
+      htfPanel.outlineTime = c2.time;
+      htfPanel.outlineHigh = c2.high;
+      htfPanel.outlineLow = c2.low;
+    }
+  }
+  htfPanel.scheduleOutline();
+
+  // LTF bands — only Matched windows paint (Not Matched / Unavailable stay unmarked)
+  const bandWindows = [];
+  states.forEach((s) => {
+    if (s.state === TC.STATE.MATCHED) {
+      bandWindows.push({ from: s.closeTime - htfSec, to: s.closeTime, pattern: s.pattern });
+    }
+  });
+  ltfPanel.setBandWindows(bandWindows);
+  // the newest LTF candle may sit past the last window (partial tail bar), so fall back
+  // to the most recent candle that actually has a window
+  ltfPanel.lastLtfState = null;
+  ltfBands.forEach((s) => {
+    if (!ltfPanel.lastLtfState || s.closeTime > ltfPanel.lastLtfState.closeTime) ltfPanel.lastLtfState = s;
+  });
+
+  // badge — latest eligible completed candle only (§6.10)
+  if (last) {
+    const t = fmtTime.format(new Date(last.closeTime * 1000));
+    if (CONFIG_ERROR) {
+      badge.className = 'conf-badge on';
+      badge.textContent = 'HTF: Config error';
+    } else if (last.state === TC.STATE.MATCHED) {
+      badge.className = 'conf-badge on ' + last.pattern.toLowerCase();
+      badge.textContent = 'HTF: Matched ' + last.pattern + ' · ' + t;
+    } else if (last.state === TC.STATE.NOT_MATCHED) {
+      badge.className = 'conf-badge on';
+      badge.textContent = 'HTF: Not Matched · ' + t;
+    } else {
+      badge.className = 'conf-badge on';
+      badge.textContent = 'HTF: Unavailable · ' + t;
+    }
+  }
+
+  // readouts at rest (the crosshair subscription takes over on hover)
+  htfPanel.drawConfirmLegend(last, true);
+  ltfPanel.drawConfirmLegend(ltfPanel.lastLtfState, false);
+}
+
+/* Signal timeframe moves the confirmation timeframe with it ... */
+ltfPanel.tfEl.addEventListener('change', () => {
+  const htf = HTF_OF[ltfPanel.tfSec];
+  htfPanel.tfEl.value = String(htf);
+  htfPanel.tfSec = htf;
+  htfPanel.render(true);
+  updateLockChip();
+  applyConfirmation();
+});
+
+/* ... and vice versa, so the pair can never drift apart. */
+htfPanel.tfEl.addEventListener('change', () => {
+  const ltf = LTF_OF[htfPanel.tfSec];
+  ltfPanel.tfEl.value = String(ltf);
+  ltfPanel.tfSec = ltf;
+  ltfPanel.render(true);
+  updateLockChip();
+  applyConfirmation();
+});
+
+/* HTF Confirmation ON/OFF — clears visuals only; never touches series data. */
+document.getElementById('confirm-toggle').addEventListener('change', (e) => {
+  app.confirmOn = e.target.checked;
+  applyConfirmation();
+});
+
+function refresh() {
+  for (const p of panels) p.render(true);
+  renderMeta();
+  updateLockChip();
+  applyConfirmation();
+  document.title = app.symbol + ' ' + app.date + ' — Tick Charts';
+}
+
+instrumentEl.addEventListener('change', () => {
+  app.symbol = instrumentEl.value;
+  fillDates();
+  refresh();
+});
+dateEl.addEventListener('change', () => {
+  app.date = dateEl.value;
+  refresh();
+});
+
+fillInstruments();
+fillDates();
+refresh();
+</script>
+</body>
+</html>

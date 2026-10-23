@@ -1,0 +1,16 @@
+{
+  "sma_slope_filter": {
+    "enabled": true,
+    "method": "atr_normalized",
+    "sma_period": 9,
+    "atr_period": 14,
+    "lookback_candles": 3,
+    "minimum_slope": 0.10
+  },
+  "sma_rsi_filter": {
+    "enabled": true,
+    "period": 14,
+    "pattern_a_max": 65,
+    "pattern_b_min": 35
+  }
+}
