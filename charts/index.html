@@ -675,14 +675,16 @@ class Panel {
       this._crossLock = false;
     });
 
-    // readout row — a NEW subscription; the crosshair handlers above are untouched
-    this.chart.subscribeCrosshairMove((param) => {
+    // readout row — follows the crosshair on EITHER sub-chart of this panel
+    const updateReadout = (param) => {
       if (this.key === 'htf') {
         this.drawConfirmLegend(param.time ? this.states.get(param.time + this.tfSec) : this.lastState, true);
       } else {
         this.drawConfirmLegend(param.time ? this.ltfBands.get(param.time) : this.lastLtfState, false);
       }
-    });
+    };
+    this.chart.subscribeCrosshairMove(updateReadout);
+    this.rsiChart.subscribeCrosshairMove(updateReadout);
 
     if (this.outlineEl) {
       this.chart.timeScale().subscribeVisibleTimeRangeChange(() => this.scheduleOutline());
@@ -1023,6 +1025,83 @@ const panels = [
 ];
 const [htfPanel, ltfPanel] = panels;
 window.__panels = panels; // handy for poking at series data from devtools
+
+/* ---------- cross-panel crosshair + view sync (HTF ⇄ LTF) ----------
+   Each panel already mirrors its own price ⇄ RSI crosshair. This extends the same
+   idea across the two panels: hovering either sub-chart of one panel pins the
+   other panel's charts at the same MOMENT (snapped to the other timeframe's own
+   containing candle) and redraws its legends and confirmation readout, so both
+   panels always point at the same time. Lightweight Charts does NOT re-fire
+   subscribeCrosshairMove for a programmatic setCrosshairPosition (measured), so
+   the mirror does the target's whole job by hand — and because the target's own
+   handlers never run, no re-entrancy lock is needed. */
+function containingCandle(panel, t) {
+  const arr = panel.candles;
+  let lo = 0, hi = arr.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid].time <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  if (ans < 0) return null;
+  const c = arr[ans];
+  return t < c.time + panel.tfSec ? c : null;   // t beyond the last candle's window
+}
+
+function mirrorCrosshair(from, to) {
+  const atRest = () => {
+    to.chart.clearCrosshairPosition();
+    to.rsiChart.clearCrosshairPosition();
+    to.drawLegend(to.candles[to.candles.length - 1]);
+    to.drawRsiLegend(to.lastRsiPoint);
+    to.drawConfirmLegend(to.key === 'htf' ? to.lastState : to.lastLtfState, to.key === 'htf');
+  };
+  const apply = (param) => {
+    if (param.time == null) { atRest(); return; }
+    const c = containingCandle(to, param.time);
+    if (!c) { atRest(); return; }
+    to.chart.setCrosshairPosition(c.close, c.time, to.series);
+    const v = to.rsiAt.get(c.time);
+    if (v == null) to.rsiChart.clearCrosshairPosition();
+    else to.rsiChart.setCrosshairPosition(v, c.time, to.rsiSeries);
+    to.drawLegend(c);
+    to.drawRsiLegend(v == null ? to.lastRsiPoint
+                               : { time: c.time, rsi: v, ma: to.rsiMaAt.get(c.time) });
+    if (to.key === 'htf') to.drawConfirmLegend(to.states.get(c.time + to.tfSec), true);
+    else to.drawConfirmLegend(to.ltfBands.get(c.time), false);
+  };
+  from.chart.subscribeCrosshairMove(apply);
+  from.rsiChart.subscribeCrosshairMove(apply);
+}
+mirrorCrosshair(htfPanel, ltfPanel);
+mirrorCrosshair(ltfPanel, htfPanel);
+
+/* Keep both panels' visible time windows together so the mirrored lines and the
+   time axes stay at the same screen x after any zoom/scroll (the user-facing
+   "parallel" behaviour). Lightweight Charts measures a logical range inclusively —
+   barSpacing = width / (to − from + 1) — and anchors a bar's time to its slot
+   CENTER (x = (l − from)·bs + bs/2). A naive seconds conversion therefore left the
+   two panels off by one whole slot (HTF 300s vs LTF 60s → ±10.7px at the window
+   edges, measured). Converting with the matching half-slot padding
+   (l_dst = k·l_src ∓ (k−1)/2, k = src.tfSec/dst.tfSec) restores both the slope and
+   the intercept: measured dx = 0 at the window start, middle and end. The mapping
+   round-trips exactly (k → 1/k), so the echo settles on the first compare — same
+   epsilon guard as the intra-panel link above. */
+function linkPanelWindows(a, b) {
+  const convert = (r, srcTf, dstTf) => {
+    const k = srcTf / dstTf;
+    return { from: k * r.from - (k - 1) / 2, to: k * r.to + (k - 1) / 2 };
+  };
+  const oneWay = (src, dst) => src.chart.timeScale().subscribeVisibleLogicalRangeChange((r) => {
+    if (!r || !src.candles.length || !dst.candles.length) return;
+    const want = convert(r, src.tfSec, dst.tfSec);
+    const cur = dst.chart.timeScale().getVisibleLogicalRange();
+    if (cur && Math.abs(cur.from - want.from) < 1e-6 && Math.abs(cur.to - want.to) < 1e-6) return;
+    try { dst.chart.timeScale().setVisibleLogicalRange(want); } catch (e) { /* torn down */ }
+  });
+  oneWay(a, b);
+  oneWay(b, a);
+}
+linkPanelWindows(htfPanel, ltfPanel);
 
 function updateLockChip() {
   document.getElementById('lock-text').textContent =

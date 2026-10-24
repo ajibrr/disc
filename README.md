@@ -346,6 +346,22 @@ printed for both instruments.
   space (the RSI series carries whitespace points for its warm-up bars so it starts at
   the session's first candle). Without those, the same timestamp sat ~15–30px apart on
   the two stacked charts and the mirrored line and time labels visibly disagreed.
+- **The HTF and LTF panels mirror each other too.** Hovering any sub-chart of one panel
+  pins the other panel at the same *moment*, snapped to that timeframe's own candle —
+  hovering a 1m candle at 12:28 highlights the 12:25 5m candle on the HTF, and both
+  panels' legends and confirmation readouts follow. (Lightweight Charts does not re-fire
+  `crosshairMove` for a programmatic pin, so the mirror redraws the target's legends and
+  readout directly.) The horizontal line stays on each panel's own series — an HTF and
+  an LTF price level are different quantities — while the vertical lines and time labels
+  are parallel.
+- **Zoom and scroll are synchronized between the panels**, so the parallel lines stay
+  parallel after any range change. The visible logical ranges are converted with the
+  matching half-slot padding (`l_dst = k·l_src ∓ (k−1)/2`, k = bar-time ratio):
+  Lightweight Charts measures a range *inclusively* and anchors a bar to its slot
+  center, so a naive seconds conversion left the panels off by one whole slot
+  (300s vs 60s → ±10.7px at the window edges, measured). With the padding, the same
+  timestamp lands on **pixel-identical x on all four charts** at window start, middle
+  and end, in both directions, at any zoom.
 - Scrolling or zooming one sub-chart moves the other with it (visible-range sync).
 
 Note on sync internals: Lightweight Charts delivers range-change callbacks
