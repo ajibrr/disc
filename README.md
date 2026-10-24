@@ -207,7 +207,8 @@ exactly as written rather than “corrected”.
 
 `config/htf.json` can gate both patterns on the slope of the HTF **SMA 9**, normalized by
 the HTF **ATR 14**, evaluated on the same HTF candles. Shipped settings: `enabled: true`,
-SMA 9, ATR 14, lookback 3 completed candles, `minimum_slope` 0.10.
+SMA 9, ATR 14, lookback 3 completed candles, `minimum_slope` 0.25 (retuned from the
+originally approved 0.10 — the shipped-value tests read the value from the file).
 
 ```text
 slope = (SMA9[k] − SMA9[k − lookback]) / ATR14[k]
@@ -331,12 +332,20 @@ printed for both instruments.
 
 ## 7. Crosshair & legends
 
-- Dashed crosshair on both the price and RSI charts, following the pointer.
+- Dashed crosshair on both the price and RSI charts, **snapped to the hovered candle**
+  (Magnet mode). The line, its time label, both legends and the confirmation readout
+  always name the same bar — in Normal mode the line could rest between candles while
+  the labels named a neighbouring one.
 - **Price legend**: `time · O H L C · ▲/▼ close`. Falls back to the last bar when the
   pointer leaves the chart.
 - **RSI legend**: `time · RSI 14 value · SMA 14 value`.
 - Hovering *either* sub-chart updates **both** legends to that timestamp, and the
-  crosshair is mirrored between the price and RSI charts of the same panel.
+  crosshair is mirrored between the price and RSI charts of the same panel —
+  **pixel-aligned**: both sub-charts share the same price-scale width (`minimumWidth`
+  floor of 66px at chart creation, reconciled at runtime) and the same logical index
+  space (the RSI series carries whitespace points for its warm-up bars so it starts at
+  the session's first candle). Without those, the same timestamp sat ~15–30px apart on
+  the two stacked charts and the mirrored line and time labels visibly disagreed.
 - Scrolling or zooming one sub-chart moves the other with it (visible-range sync).
 
 Note on sync internals: Lightweight Charts delivers range-change callbacks

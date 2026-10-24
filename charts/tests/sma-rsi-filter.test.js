@@ -105,7 +105,7 @@ function fixtureAUp() {
 
 const realCfg = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', '..', 'config', 'htf.json'), 'utf8'));
-const slopeNorm = TC.normalizeFilter(realCfg);          // active, minSlope 0.10
+const slopeNorm = TC.normalizeFilter(realCfg);          // active; minSlope as shipped (retuned to 0.25)
 const rsiNorm = TC.normalizeSmaRsiFilter(realCfg);      // active, 14 / 65 / 35
 const OFF = { mode: 'off', filter: null, problems: [] };
 /** Normalizer for a partial sma_rsi_filter section (shipped defaults + overrides). */
@@ -246,8 +246,9 @@ console.log('\nT32 — validators are independent: each reads only its own secti
   const cfg = { sma_slope_filter: realCfg.sma_slope_filter,
                 sma_rsi_filter: realCfg.sma_rsi_filter, unrelated: 42 };
   const s = TC.normalizeFilter(cfg), r = TC.normalizeSmaRsiFilter(cfg);
-  ok(s.mode === 'active' && s.filter.minSlope === 0.10,
-     'slope section unaffected by the rsi section being present');
+  ok(s.mode === 'active' &&
+     s.filter.minSlope === realCfg.sma_slope_filter.minimum_slope,
+     'slope section unaffected by the rsi section being present (minSlope ' + s.filter.minSlope + ')');
   ok(r.mode === 'active' && r.filter.period === 14 &&
      r.filter.patternAmax === 65 && r.filter.patternBmin === 35,
      'rsi section parsed from the shipped file (period 14 / 65 / 35)');

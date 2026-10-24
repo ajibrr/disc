@@ -205,12 +205,16 @@ console.log('T18 — changing minimum_slope in config/htf.json changes evaluatio
   const realCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   const n1 = TC.normalizeFilter(realCfg);
   ok(n1.mode === 'active', 'committed config normalizes to active (got ' + n1.mode + ')');
-  eq(n1.filter, { smaPeriod: 9, atrPeriod: 14, lookback: 3, minSlope: 0.1 },
+  // minSlope is compared against the file itself: the shipped threshold was retuned
+  // 0.10 → 0.25 by explicit decision, and the round-trip guard should track the file
+  eq(n1.filter, { smaPeriod: 9, atrPeriod: 14, lookback: 3,
+                  minSlope: realCfg.sma_slope_filter.minimum_slope },
      'six shipped values round-trip (Q5)');
 
   const END = 15 * H - 1;
   const withShip = TC.evaluate(fixtureAUp(), { htfSec: H, sessionEndTick: END, filter: n1 }).get(15 * H);
-  ok(withShip.state === TC.STATE.MATCHED, 'fixture matches at shipped minimum_slope 0.10');
+  ok(withShip.state === TC.STATE.MATCHED,
+     'fixture matches at the configured minimum_slope ' + realCfg.sma_slope_filter.minimum_slope);
 
   const mutated = JSON.parse(JSON.stringify(realCfg));     // in-memory change, file untouched
   mutated.sma_slope_filter.minimum_slope = 3.0;

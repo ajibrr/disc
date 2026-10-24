@@ -5,7 +5,7 @@
     "sma_period": 9,
     "atr_period": 14,
     "lookback_candles": 3,
-    "minimum_slope": 0.10
+    "minimum_slope": 0.25
   },
   "sma_rsi_filter": {
     "enabled": true,

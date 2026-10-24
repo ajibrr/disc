@@ -5,6 +5,10 @@
 > gate (259/0), index.html wiring, browser verification T26, README §1/§2/§6/§9/§10.
 > Unresolved items O1–O4 were resolved by the proposed defaults (O4: shipped as-is).
 >
+> **Shipped-config update (2026-10-24, user decision):** `minimum_slope` retuned
+> **0.10 → 0.25** (config/htf.json, regenerated); the two tests that pin shipped values
+> now compare against the file itself. Q5 below records the originally approved default.
+>
 > **Part II (bottom of this file): HTF SMA-of-RSI filter — IMPLEMENTED and verified**
 > (approved with answers to Q-P1…Q-P5, incorporated as decided). Delivered: config
 > section + regenerated bundle (sourceSha `47913ff9bf351c2e`), validator + gate,

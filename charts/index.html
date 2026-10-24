@@ -471,7 +471,12 @@ const CHART_OPTS = {
     horzLines: { color: 'rgba(42, 46, 57, 0.6)' },
   },
   crosshair: {
-    mode: 0, // CrosshairMode.Normal
+    // Magnet: the line snaps to the candle under the pointer (and to the series value
+    // on the price axis). Normal mode let the line rest between candles while
+    // param.time — legend, readout and the mirrored crosshair — named a neighbouring
+    // bar, so the line and its labels visibly disagreed; with the sub-charts'
+    // geometry pixel-aligned, Magnet makes both charts’ lines land on the same x too.
+    mode: 1, // CrosshairMode.Magnet
     vertLine: {
       color: '#758696', width: 1, style: 2, // dashed
       labelBackgroundColor: '#363a45',
@@ -481,7 +486,14 @@ const CHART_OPTS = {
       labelBackgroundColor: '#363a45',
     },
   },
-  rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.12, bottom: 0.12 } },
+  // minimumWidth: floor both sub-charts' price scales to the same width from birth.
+  // The scales otherwise size to their labels ("22600.00" ≈ 66px vs "100.0" ≈ 48px),
+  // which makes the plot widths differ and the same timestamp land at different x
+  // pixels on the price and RSI charts — visibly misaligning the mirrored crosshair
+  // and the time-axis labels. 66 = measured width of the widest NIFTY/SENSEX label at
+  // the 11px UI font; Panel.syncScaleWidths() still reconciles at runtime if a
+  // future instrument ever needs a wider label.
+  rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.12, bottom: 0.12 }, minimumWidth: 66 },
   timeScale: {
     borderColor: '#2a2e39',
     timeVisible: true,
@@ -552,7 +564,7 @@ class Panel {
     // RSI sub-panel: its own chart instance, time-synced to the price chart
     this.rsiChart = LightweightCharts.createChart(this.rsiChartEl, {
       ...CHART_OPTS,
-      rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.2, bottom: 0.2 } },
+      rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.2, bottom: 0.2 }, minimumWidth: 66 },
     });
     const rsiFmt = { type: 'custom', formatter: (v) => v.toFixed(1), minMove: 0.1 };
     const pinScale = () => ({ priceRange: { minValue: 0, maxValue: 100 } });
@@ -681,6 +693,7 @@ class Panel {
       if (w > 0 && h > 0) {
         target.applyOptions({ width: w, height: h });
         if (this === window.__panels[0] || this === window.__panels[1]) this.scheduleOutline();
+        this.syncScaleWidths();
       }
     }).observe(el);
     watch(this.chartEl, this.chart);
@@ -811,6 +824,34 @@ class Panel {
 
   /* ---------- end confirmation rendering ---------- */
 
+  /**
+   * Pixel-align the two sub-charts of this panel. The right price scales size
+   * themselves to their widest label (e.g. 66px for "22600.00" vs 48px for
+   * "100.0"), which makes the plot widths — and therefore the bar spacing of two
+   * identically-ranged time axes — differ, so the same timestamp sat at different
+   * x pixels on the price and RSI charts (the mirrored crosshair looked off by
+   * ~15–30px). Floor both scales to the same width; no-op once equal.
+   *
+   * @returns {boolean} true when options were applied — the caller must re-fit
+   *   afterwards, because the relayout lands after a synchronous fitContent.
+   */
+  syncScaleWidths() {
+    const scaleW = (ch) => {
+      const el = ch.chartElement();
+      const c = el && el.querySelector('canvas');
+      if (!el || !c) return null;
+      const elW = Math.round(el.getBoundingClientRect().width);
+      if (elW < 2) return null;
+      return elW - Math.round(c.getBoundingClientRect().width);
+    };
+    const a = scaleW(this.chart), b = scaleW(this.rsiChart);
+    if (a == null || b == null || a === b) return false;
+    const target = Math.max(a, b);
+    this.chart.applyOptions({ rightPriceScale: { minimumWidth: target } });
+    this.rsiChart.applyOptions({ rightPriceScale: { minimumWidth: target } });
+    return true;
+  }
+
   render(fit) {
     const ticks = getTicks(app.symbol, app.date);
     this.decimals = (DATA.instruments[app.symbol] || {}).decimals || 2;
@@ -856,6 +897,11 @@ class Panel {
       if (rsi14[i] != null) {
         this.rsiAt.set(c.time, rsi14[i]);
         rsiData.push({ time: c.time, value: rsi14[i] });
+      } else {
+        // whitespace point for the RSI warm-up bars: it occupies no pixels but keeps
+        // this chart's logical index space identical to the price chart above it —
+        // without it the shared time axes and the mirrored crosshair sat 14 bars apart
+        rsiData.push({ time: c.time });
       }
       if (rsiMa14[i] != null) {
         this.rsiMaAt.set(c.time, rsiMa14[i]);
@@ -871,9 +917,16 @@ class Panel {
 
     this.drawLegend(this.candles[this.candles.length - 1]);
     this.drawRsiLegend(this.lastRsiPoint);
+    const rescaled = this.syncScaleWidths();   // equal plot widths ⇒ aligned time axes
     if (fit !== false) {
-      this.chart.timeScale().fitContent();
-      this.rsiChart.timeScale().fitContent();
+      const fitAll = () => {
+        this.chart.timeScale().fitContent();
+        this.rsiChart.timeScale().fitContent();
+      };
+      fitAll();
+      // a scale resize re-anchors the view after this tick — refit once it has
+      // landed, so the session still starts at bar 0 (no left-edge crop at load)
+      if (rescaled) requestAnimationFrame(fitAll);
     }
   }
 
