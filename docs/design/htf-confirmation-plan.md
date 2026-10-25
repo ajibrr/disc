@@ -1,8 +1,12 @@
 # HTF Candle Confirmation Visualization — Implementation Plan
 
-> **Status: IMPLEMENTED.** Delivered as `charts/confirmation.js` (pure rules),
-> additions to `charts/index.html` (toggle, badge, readouts, markers, −2 outline, band
-> primitive) and `charts/tests/confirmation.test.js` (259 assertions, all passing).
+> *File paths in this record (`charts/…`) refer to the project layout at the time; the code now lives in `src/`, `scripts/`, `tests/` and `web/` — see the [README](../../README.md).*
+
+> **Historical design record** for the HTF candle-confirmation feature (Pattern A / B, zone shading). Written *before* it was built; kept for the reasoning (look-ahead, partial candles, timestamp mapping). For how things work **now**, read [../htf-pattern.md](../htf-pattern.md) and the [README](../../README.md).
+
+> **Status: IMPLEMENTED.** Delivered as `src/confirmation.js` (pure rules),
+> additions to `web/index.html` (toggle, badge, readouts, markers, −2 outline, band
+> primitive) and `tests/confirmation.test.js` (259 assertions, all passing).
 > Spike §5.4 executed first against the vendored build: primitive attaches, renders at
 > bottom z-order *behind* the candles (81/81 candle pixels survived a full-pane fill),
 > coordinate conversion and scroll-tracking confirmed, detach clean.
@@ -12,7 +16,7 @@
 > called BUY, `Pattern B` is the rule set formerly called SELL; the comparisons are
 > unchanged, only the labels are. States are `Matched`, `Not Matched` and `Unavailable`.
 
-Written against `charts/index.html` as it stands today: single-file app, Lightweight
+Written against `web/index.html` as it stands today: single-file app, Lightweight
 Charts v4.2.0, `Panel` class, `HTF_OF` 5:1 lock, SMA 9 / SMA 44 / RSI 14 /
 SMA-14-of-RSI overlays.
 
@@ -27,7 +31,7 @@ Section 5 of the request says:
 > "When an existing LTF signal has a valid BUY confirmation, mark it as HTF BUY
 > confirmed… Keep original LTF signals visible even when confirmation fails."
 
-There is **no signal logic anywhere in the codebase**. `charts/index.html` contains only
+There is **no signal logic anywhere in the codebase**. `web/index.html` contains only
 candle building (`buildCandles`), indicators (`smaNullable`, `rsi`) and rendering
 (`Panel`). No entry rule, no exit rule, no strategy object. This was confirmed when the
 indicator work was delivered and is recorded in `README.md` §5.3.**RESOLVED by this update:** the feature is **candle-pattern matching and visualization
@@ -52,7 +56,7 @@ completeness test (§6.7), not by position.
 
 ## 1. Existing functions and sections that will be reused
 
-All names below are real, current names in `charts/index.html`.
+All names below are real, current names in `web/index.html`.
 
 | Existing symbol | Location | Reuse in this feature |
 |---|---|---|
@@ -100,7 +104,7 @@ Key properties the confirmation logic depends on:
 
 ## 3. Where the confirmation logic lives — and why
 
-**Recommendation: a new pure module `charts/confirmation.js`**, loaded with a third
+**Recommendation: a new pure module `src/confirmation.js`**, loaded with a third
 `<script>` tag before the app script, exposing one global:
 
 ```html
@@ -484,7 +488,7 @@ zoom, crosshair mirroring and RSI panels are untouched — re-verified by test T
 ### 6.10 One eligibility function, shared by the badge, the markers and the bands
 
 The toolbar badge and the on-chart marks must never disagree, so they must not compute
-eligibility separately. `charts/confirmation.js` exports a single pure entry point:
+eligibility separately. `src/confirmation.js` exports a single pure entry point:
 
 ```
 evaluate(htfCandles, { htfSec, sessionEndTick })
@@ -533,10 +537,10 @@ with the feature never enabled, to confirm the default page is byte-identical.
 
 | File | Change | Why |
 |---|---|---|
-| `charts/confirmation.js` | **New**, ~120 lines | Pure rule evaluation + window mapping. No DOM, no LWC |
-| `charts/index.html` | **Modified**, additive only | Load the new script; new `applyConfirmation()`; marker/overlay/badge rendering; toggle control; ~60 lines of CSS |
-| `charts/tests/confirmation.test.js` | **New**, Node asserts, no framework | Rule fixtures + no-look-ahead property test (§9) |
-| `charts/data.js`, `charts/build-data.js`, `README.md`, `input/*` | **Unchanged** | The existing candle data is exactly what the rules need; README is only updated after this feature ships, with separate approval |
+| `src/confirmation.js` | **New**, ~120 lines | Pure rule evaluation + window mapping. No DOM, no LWC |
+| `web/index.html` | **Modified**, additive only | Load the new script; new `applyConfirmation()`; marker/overlay/badge rendering; toggle control; ~60 lines of CSS |
+| `tests/confirmation.test.js` | **New**, Node asserts, no framework | Rule fixtures + no-look-ahead property test (§9) |
+| `web/generated/data.js`, `scripts/build-data.js`, `README.md`, `input/*` | **Unchanged** | The existing candle data is exactly what the rules need; README is only updated after this feature ships, with separate approval |
 
 Concrete edit points inside `index.html` (line numbers approximate, current file):
 
@@ -570,7 +574,7 @@ Concrete edit points inside `index.html` (line numbers approximate, current file
 
 ## 9. Validation plan
 
-Node tests (no framework, plain `assert`), runnable via `node charts/tests/confirmation.test.js`:
+Node tests (no framework, plain `assert`), runnable via `node tests/confirmation.test.js`:
 
 | # | Test | Proves |
 |---|---|---|
@@ -636,7 +640,7 @@ a console-error check after every interaction.
 
 **Decisions confirmed by the user — no open questions remain**
 
-1. **Module layout — separate `charts/confirmation.js`.** Pure rule module, no DOM, so
+1. **Module layout — separate `src/confirmation.js`.** Pure rule module, no DOM, so
    the identical code the browser runs can be required from Node for tests (§3).
 2. **Non-matching candles — no marker for `Not Matched`.** Failed conditions are shown in
    the hover readout instead of grey `–` markers on nearly every candle. Grey markers

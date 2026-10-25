@@ -1,0 +1,49 @@
+Cross-validation of the tuning procedure — 29 blocked folds of ~1 consecutive sessions, LTF 12s, 36s, objective winrate, min 8 trades on the training sessions, fine grid
+For each fold: tune on the OTHER folds (greedy, up to 3 changes), then trade the held-out fold with each stage. Pooling the held-out trades gives the honest result of "tune, then trade unseen days".
+Start config: /private/tmp/claude-501/-Users-mohammednadhims-Others-disc/331657e3-a855-4d16-8a77-6057cd8833f4/scratchpad/c6_36.json
+
+Held-out results, all folds pooled (the trades of days the tuning never saw):
+changes allowed   trades   wins   win rate   P&L pts      PF   win-rate lower bound
+    0 (untuned)       17     11      64.7%    112.40    5.54       41.3%
+              1       17     10      58.8%    100.40    4.20       36.0%
+              2       15      8      53.3%     73.50    3.34       30.1%
+              3       15      8      53.3%     73.50    3.34       30.1%
+
+Per fold (held-out trades · win rate) for 0 changes / 1 / 2 / 3 and the change added at each step:
+  fold 1 (2026-09-09 … 2026-09-09, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 2 (2026-09-11 … 2026-09-11, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 3 (2026-09-15 … 2026-09-15, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 4 (2026-09-16 … 2026-09-16, 1 sessions): 1·100.0%  1·100.0%  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 5 (2026-09-17 … 2026-09-17, 1 sessions): 1·100.0%  1·100.0%  1·100.0%  1·100.0%   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 6 (2026-09-18 … 2026-09-18, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 7 (2026-09-21 … 2026-09-21, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 8 (2026-09-22 … 2026-09-22, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 9 (2026-09-23 … 2026-09-23, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 10 (2026-09-24 … 2026-09-24, 1 sessions): 1·0.0%  1·0.0%  1·0.0%  1·0.0%   steps: max_risk_points 6 → 8
+  fold 11 (2026-09-25 … 2026-09-25, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 12 (2026-09-28 … 2026-09-28, 1 sessions): 2·100.0%  2·100.0%  1·100.0%  1·100.0%   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 13 (2026-09-29 … 2026-09-29, 1 sessions): 1·0.0%  1·0.0%  1·0.0%  1·0.0%   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 14 (2026-09-30 … 2026-09-30, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 15 (2026-10-01 … 2026-10-01, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 16 (2026-10-05 … 2026-10-05, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 17 (2026-10-06 … 2026-10-06, 1 sessions): 1·0.0%  1·0.0%  1·0.0%  1·0.0%   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 18 (2026-10-07 … 2026-10-07, 1 sessions): 1·100.0%  1·100.0%  1·100.0%  1·100.0%   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 19 (2026-10-08 … 2026-10-08, 1 sessions): 2·100.0%  2·100.0%  2·100.0%  2·100.0%   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 20 (2026-10-09 … 2026-10-09, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 21 (2026-10-12 … 2026-10-12, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 22 (2026-10-13 … 2026-10-13, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 23 (2026-10-14 … 2026-10-14, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 24 (2026-10-15 … 2026-10-15, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 25 (2026-10-16 … 2026-10-16, 1 sessions): 3·33.3%  4·25.0%  4·25.0%  4·25.0%   steps: max_risk_points 6 → 8
+  fold 26 (2026-10-19 … 2026-10-19, 1 sessions): 0·—  0·—  0·—  0·—   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 27 (2026-10-21 … 2026-10-21, 1 sessions): 2·100.0%  0·—  0·—  0·—   steps: max_risk_points 6 → 5 | min_risk_points 3.5 → 4
+  fold 28 (2026-10-22 … 2026-10-22, 1 sessions): 1·100.0%  2·100.0%  2·100.0%  2·100.0%   steps: max_risk_points 6 → 8 | min_risk_points 3.5 → 4
+  fold 29 (2026-10-23 … 2026-10-23, 1 sessions): 1·0.0%  1·0.0%  1·0.0%  1·0.0%   steps: min_risk_points 3.5 → 4 | max_risk_points 6 → 7
+
+First change chosen in each fold (how stable the choice is): max_risk_points 6 → 8 ×27 ; max_risk_points 6 → 5 ×1 ; min_risk_points 3.5 → 4 ×1
+
+Best number of changes by held-out win-rate lower bound: 0 (tuning did not beat the untuned config on unseen days)
+Fitted on ALL sessions with 0 change(s): nothing
+  untuned, all sessions   : 17 trades, 64.7% win, P&L 112.40, PF 5.54
+  tuned,   all sessions   : 17 trades, 64.7% win, P&L 112.40, PF 5.54   (in-sample — flattering)
+  expected on unseen days : about the held-out row for 0 change(s) above: 17 trades, 64.7% win, P&L 112.40 (pooled over 29 sessions)

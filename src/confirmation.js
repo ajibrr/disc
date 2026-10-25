@@ -1,8 +1,8 @@
 /**
  * confirmation.js — HTF candle-pattern matching (pure, no DOM, no chart library).
  *
- * This module is loaded both by charts/index.html (as window.TickConfirm) and by
- * charts/tests/confirmation.test.js (via require), so the exact code the browser
+ * This module is loaded both by web/index.html (as window.TickConfirm) and by
+ * tests/confirmation.test.js (via require), so the exact code the browser
  * runs is the code the tests exercise.
  *
  * Terminology
@@ -86,7 +86,7 @@
   function normalizeFilter(raw) {
     if (raw == null) {
       return { mode: 'error', filter: null,
-               problems: ['config not generated — run node charts/build-config.js'] };
+               problems: ['config not generated — run node scripts/build-config.js'] };
     }
     if (typeof raw !== 'object') {
       return { mode: 'error', filter: null, problems: ['config must be a JSON object'] };
@@ -139,7 +139,7 @@
   function normalizeSmaRsiFilter(raw) {
     if (raw == null) {
       return { mode: 'error', filter: null,
-               problems: ['config not generated — run node charts/build-config.js'] };
+               problems: ['config not generated — run node scripts/build-config.js'] };
     }
     if (typeof raw !== 'object') {
       return { mode: 'error', filter: null, problems: ['config must be a JSON object'] };
@@ -174,6 +174,46 @@
       patternAmax: sec.pattern_a_max,
       patternBmin: sec.pattern_b_min,
     }, problems: [] };
+  }
+
+  /**
+   * Option-chain OI-change filter configuration (config/htf.json -> oi_change_filter) — the same three-mode contract as the
+   * other two gates, reading ONLY its own section.
+   *
+   *   minimum_difference  how far the PE open-interest change must be ABOVE (Pattern A) or BELOW (Pattern B) the CE one,
+   *                       in the file's own units (>= 0, default 0)
+   *   Pattern A passes when  PE change - CE change  >  minimum_difference      (strict)
+   *   Pattern B passes when  CE change - PE change  >  minimum_difference      (strict)
+   *
+   * "Change" is the CE / PE open-interest change of the candle being judged (candle -1): the file's change of its minute for a
+   * 1m candle, the sum of the minutes inside it for a longer one (src/oi-flow.js). The per-candle values travel on
+   * `normalized.perCandle` (set by the page / runner for the session on screen); without them the gate fails closed.
+   */
+  function normalizeOiFilter(raw) {
+    if (raw == null) {
+      return { mode: 'error', filter: null,
+               problems: ['config not generated — run node scripts/build-config.js'] };
+    }
+    if (typeof raw !== 'object') {
+      return { mode: 'error', filter: null, problems: ['config must be a JSON object'] };
+    }
+    if (!Object.prototype.hasOwnProperty.call(raw, 'oi_change_filter')) {
+      return { mode: 'off', filter: null, problems: [] };   // deliberately absent
+    }
+    var sec = raw.oi_change_filter;
+    if (sec == null || typeof sec !== 'object' || Array.isArray(sec)) {
+      return { mode: 'error', filter: null, problems: ['oi_change_filter must be an object'] };
+    }
+    if (sec.enabled === false) return { mode: 'off', filter: null, problems: [] };
+
+    var problems = [];
+    if (sec.enabled !== true) problems.push('oi_change_filter: enabled must be a boolean (true or false)');
+    var md = sec.minimum_difference === undefined ? 0 : sec.minimum_difference;
+    if (typeof md !== 'number' || !Number.isFinite(md) || md < 0) {
+      problems.push('oi_change_filter: minimum_difference must be a finite number >= 0');
+    }
+    if (problems.length) return { mode: 'error', filter: null, problems: problems };
+    return { mode: 'active', filter: { minDiff: md }, problems: [] };
   }
 
   /** Simple moving average of closes; null until `period` finite values exist. */
@@ -334,11 +374,15 @@
     var mode = norm && norm.mode ? norm.mode : 'off';
     var rNorm = norm && norm.rsi ? norm.rsi : null;
     var rMode = rNorm && rNorm.mode ? rNorm.mode : 'off';
-    var anyError = mode === 'error' || rMode === 'error';
+    var oNorm = norm && norm.oi ? norm.oi : null;
+    var oMode = oNorm && oNorm.mode ? oNorm.mode : 'off';
+    var anyError = mode === 'error' || rMode === 'error' || oMode === 'error';
     var f = mode === 'active' ? norm.filter : null;
     var rf = rMode === 'active' ? rNorm.filter : null;
     var slopes = mode === 'active' ? slopeSeries(candles, f) : null;
     var rsiSmas = rMode === 'active' ? rsiSmaSeries(candles, rf) : null;
+    var of = oMode === 'active' ? oNorm.filter : null;
+    var oiArr = oMode === 'active' && oNorm.perCandle ? oNorm.perCandle : null;   // per-candle { dce, dpe } | null
 
     for (var k = 0; k < candles.length; k++) {
       var c1 = candles[k];
@@ -383,6 +427,7 @@
         var econd = Object.assign({}, r.conditions);
         if (mode !== 'off') Object.assign(econd, { slope: null, slopeA: null, slopeB: null });
         if (rMode !== 'off') Object.assign(econd, { rsi: null, rsiA: null, rsiB: null });
+        if (oMode !== 'off') Object.assign(econd, { oiCe: null, oiPe: null, oiA: null, oiB: null });
         out.set(closeTime, Object.assign({}, base, {
           state: STATE.NOT_MATCHED,
           pattern: null,
@@ -392,7 +437,7 @@
         continue;
       }
 
-      if (mode === 'active' || rMode === 'active') {
+      if (mode === 'active' || rMode === 'active' || oMode === 'active') {
         // per-section condition keys in a fixed order (slope first), so output with
         // the rsi section off is byte-identical to Part I (T19/T25/T31 regression)
         var cond = Object.assign({}, r.conditions);
@@ -408,8 +453,15 @@
           cond.rsiA = rv === null ? null : rv < rf.patternAmax;  // strict (approved Q-P1)
           cond.rsiB = rv === null ? null : rv > rf.patternBmin;  // strict
         }
-        // sequential gates: a pattern survives only its OWN chain (A: slopeA ∧ rsiA,
-        // B: slopeB ∧ rsiB), and each link applies only while its section is active.
+        if (oMode === 'active') {
+          var oc = oiArr ? oiArr[k] : null;                 // { dce, dpe } | null (no flow for this candle)
+          cond.oiCe = oc ? oc.dce : null;
+          cond.oiPe = oc ? oc.dpe : null;
+          cond.oiA = oc ? (oc.dpe - oc.dce) > of.minDiff : null;   // strict; PE change above CE change
+          cond.oiB = oc ? (oc.dce - oc.dpe) > of.minDiff : null;   // strict; CE change above PE change
+        }
+        // sequential gates: a pattern survives only its OWN chain (A: slopeA ∧ rsiA ∧ oiA,
+        // B: slopeB ∧ rsiB ∧ oiB), and each link applies only while its section is active.
         // An unavailable indicator value is not `true`, so it fails closed (Q-P2).
         var basePattern = r.patternA ? 'A' : (r.patternB ? 'B' : null);
         var pat = basePattern;
@@ -417,6 +469,8 @@
         if (pat === 'B' && mode === 'active' && cond.slopeB !== true) pat = null;
         if (pat === 'A' && rMode === 'active' && cond.rsiA !== true) pat = null;
         if (pat === 'B' && rMode === 'active' && cond.rsiB !== true) pat = null;
+        if (pat === 'A' && oMode === 'active' && cond.oiA !== true) pat = null;
+        if (pat === 'B' && oMode === 'active' && cond.oiB !== true) pat = null;
         out.set(closeTime, Object.assign({}, base, {
           state: pat ? STATE.MATCHED : STATE.NOT_MATCHED,
           pattern: pat,
@@ -475,11 +529,13 @@
   return {
     STATE: STATE,
     isComplete: isComplete,
+    rsiArray: rsiArray,
     evaluatePattern: evaluatePattern,
     evaluate: evaluate,
     mapToLtf: mapToLtf,
     latest: latest,
     normalizeFilter: normalizeFilter,
     normalizeSmaRsiFilter: normalizeSmaRsiFilter,
+    normalizeOiFilter: normalizeOiFilter,
   };
 }));

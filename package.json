@@ -1,0 +1,14 @@
+{
+  "name": "tickcharts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HTF/LTF tick charts for NIFTY with a strategy simulation and back-test (no dependencies).",
+  "scripts": {
+    "build": "node scripts/build-config.js && node scripts/build-data.js",
+    "backtest": "node scripts/run-backtest.js",
+    "trades": "node scripts/run-backtest.js --trades",
+    "test": "node tests/run-all.js",
+    "research:sweep": "node research/optimize/optimize.js sweep",
+    "research:cv": "node research/optimize/optimize.js cv --objective winrate --freeze C5 --grid fine --folds 6"
+  }
+}

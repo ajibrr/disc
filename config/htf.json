@@ -12,5 +12,9 @@
     "period": 14,
     "pattern_a_max": 65,
     "pattern_b_min": 35
+  },
+  "oi_change_filter": {
+    "enabled": false,
+    "minimum_difference": 0
   }
 }

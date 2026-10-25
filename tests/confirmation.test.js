@@ -1,17 +1,17 @@
 /**
- * confirmation.test.js — no framework; run with:  node charts/tests/confirmation.test.js
+ * confirmation.test.js — no framework; run with:  node tests/confirmation.test.js
  *
  * Covers plan tests T1, T2, T3, T4, T6, T11, T12 (CandleImplementionplan.md §9).
  *
  * Note on T12: rather than trust a copy of the bucketing logic, these tests EXTRACT the
- * real buildCandles() out of charts/index.html and execute it. If that extraction ever
+ * real buildCandles() out of web/index.html and execute it. If that extraction ever
  * fails the suite fails loudly, so the tests can never silently drift from the app.
  */
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const TC = require('../confirmation.js');
+const TC = require('../src/confirmation.js');
 
 let pass = 0, fail = 0;
 function ok(cond, name) {
@@ -251,9 +251,9 @@ console.log('T11 — badge / chart single-source eligibility');
 /* ------------------------------------------------------------------ */
 console.log('T12 — completeness predicate against the REAL buildCandles()');
 {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const m = src.match(/function buildCandles\(ticks, tf\) \{[\s\S]*?\n\}/);
-  ok(!!m, 'buildCandles() extracted from charts/index.html');
+  ok(!!m, 'buildCandles() extracted from web/index.html');
   if (!m) { console.error('  cannot continue without the real buildCandles'); process.exit(1); }
   // eslint-disable-next-line no-new-func
   const buildCandles = new Function('return (' + m[0] + ')')();
@@ -313,7 +313,8 @@ console.log('T12 — completeness predicate against the REAL buildCandles()');
   // (e) counts on the two real files
   for (const [file, key] of [['NIFTY_2026-10-23_DASHBOARD.json', 'nifty_seconds'],
                              ['SENSEX_2026-10-23_DASHBOARD.json', 'sensex_seconds']]) {
-    const d = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'input', file), 'utf8'));
+    if (!fs.existsSync(path.join(__dirname, '..', 'input', file))) { console.log('  note: input/' + file + ' is not present \u2014 skipped'); continue; }
+    const d = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'input', file), 'utf8'));
     const pk = d.asset.toLowerCase();
     const t = { times: d[key].map(r => r.timestamp_epoch), prices: d[key].map(r => r[pk]) };
     const end = t.times[t.times.length - 1];

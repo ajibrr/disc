@@ -1,5 +1,9 @@
 # HTF SMA 9 ATR-Normalized Slope Filter — Implementation Plan
 
+> *File paths in this record (`charts/…`) refer to the project layout at the time; the code now lives in `src/`, `scripts/`, `tests/` and `web/` — see the [README](../../README.md).*
+
+> **Historical design record** — Part I: ATR-normalized SMA slope filter; Part II: SMA-of-RSI filter (both implemented). Written *before* the code, with its decision log and test plans; some statements describe the plan, not the final state. For how things work **now**, read [../htf-pattern.md](../htf-pattern.md).
+
 > **Status: IMPLEMENTED and verified** (approval given; revision 2 as approved). All
 > steps of §11 completed: config + generator, module, T13–T28 suite (139/0), baseline
 > gate (259/0), index.html wiring, browser verification T26, README §1/§2/§6/§9/§10.
@@ -23,7 +27,7 @@
 
 | # | Question | Decision |
 |---|---|---|
-| Q1 | Config loading | **Option A** — `config/htf.json` is the single editable source of truth; `charts/build-config.js` generates `charts/config.js` to preserve the `file://` workflow; the generator **must be run after every configuration change** |
+| Q1 | Config loading | **Option A** — `config/htf.json` is the single editable source of truth; `scripts/build-config.js` generates `web/generated/config.js` to preserve the `file://` workflow; the generator **must be run after every configuration change** |
 | Q2 | Slope neutral/unavailable while the pattern window is evaluable | **`Not Matched`**, with the slope shown as unavailable in the condition readout; `Unavailable` remains reserved for insufficient pattern-window history |
 | Q3 | Invalid configuration | **Fail closed** when the filter section is present and invalid: display a clear configuration error, never silently fall back to unfiltered matches; a *deliberately disabled* filter (`enabled: false`) still preserves original behavior |
 | Q4 | ATR convention | **Wilder's RMA**, seeded with the simple mean of the first 14 valid true-range values; indexing convention documented |
@@ -69,15 +73,15 @@ config/                        ❌ DOES NOT EXIST (created during implementation
 ```
 
 No `package.json`, no test runner, no linter, no build tooling. Tests run as
-`node charts/tests/<file>.js`. ✅
+`node tests/<file>.js`. ✅
 
-### 2.2 The page (`charts/index.html`) ✅
+### 2.2 The page (`web/index.html`) ✅
 
 - Script order: `lib/…` → `data.js` → `confirmation.js` → one inline app script
-  ([index.html:7-9](charts/index.html#L7-L9)). `charts/config.js` will be inserted
+  ([index.html:7-9](../../web/index.html#L7-L9)). `web/generated/config.js` will be inserted
   after `data.js` (§7).
 - "Configuration" today = inline constants in the app script
-  ([index.html:299](charts/index.html#L299) `/* config */`): `TF_LABELS` (L303),
+  ([index.html:299](../../web/index.html#L299) `/* config */`): `TF_LABELS` (L303),
   `LTF_OPTIONS`, `HTF_OF`, `HTF_OPTIONS`, `DEFAULTS` (L311), `TZ`, `DATA` (L313),
   `TC = window.TickConfirm` (L314). **These stay where they are** (§3.2).
 - `getTicks(symbol, date)` (L347) → `{ times, prices, meta }`; `meta.sessionEnd` is the
@@ -95,13 +99,13 @@ No `package.json`, no test runner, no linter, no build tooling. Tests run as
   `TC.evaluate(…)` per `symbol|date|htfSec`; `applyConfirmation()` (L960) is the single
   source (§6.10 of the previous plan) feeding badge, `setMarkers` (L1002), the −2
   outline, LTF bands and both readouts. It **never calls `setData`**.
-- Readout: `drawConfirmLegend(state, isHtf)` ([index.html:741](charts/index.html#L741))
+- Readout: `drawConfirmLegend(state, isHtf)` ([index.html:741](../../web/index.html#L741))
   renders the HTF per-condition chips (`A: c1 ✓ c3 ✓ c4 ✓ 5A ✓ 5B ✓` …) as raw HTML
   using existing `.grp/.ok/.bad/.hint/.t/.st` classes.
 - UI toggle `confirm-on` sets `app.confirmOn` (L872) and re-runs `applyConfirmation()`;
   it clears visuals only, never series data.
 
-### 2.3 The rule module (`charts/confirmation.js`) ✅
+### 2.3 The rule module (`src/confirmation.js`) ✅
 
 - UMD: `module.exports` in Node, `window.TickConfirm` in the browser — the exact code
   the tests run is the code the page runs.
@@ -109,7 +113,7 @@ No `package.json`, no test runner, no linter, no build tooling. Tests run as
 - `isComplete(candle, htfSec, availableUpTo)` ⇔ `candle.time + htfSec - 1 <= availableUpTo`
   (the proven off-by-one-correct predicate; tested by T12 against the **real**
   `buildCandles()` extracted from `index.html`).
-- `evaluatePattern(c1..c5)` ([confirmation.js:56-67](charts/confirmation.js#L56-L67)) is
+- `evaluatePattern(c1..c5)` ([confirmation.js:56-67](../../src/confirmation.js#L56-L67)) is
   the literal transcription of the five-candle rules; returns
   `{ patternA, patternB, conditions }`. It has **no access to the candle series** — only
   the five candles — so it *cannot* compute an SMA/ATR slope.
@@ -125,14 +129,14 @@ No `package.json`, no test runner, no linter, no build tooling. Tests run as
 **Finding: none exists.** `index.html` contains no `fetch()`, no `XMLHttpRequest`, no
 `import` — verified by grep. The README states the page "runs entirely in the browser —
 no server, no build step, no network access" and that `data.js` is "loaded as a plain
-script, so there is no `fetch()` and no CORS problem" ([README.md:262-270](README.md#L262-L270)).
+script, so there is no `fetch()` and no CORS problem" ([README.md:262-270](../../README.md#L262-L270)).
 The only mechanism the project uses to bring external content into the page is the
 **generated plain-script bundle** pattern (`input/*.json` → `build-data.js` → `data.js`).
 Q1 adopts that same pattern for configuration.
 
 ### 2.5 Tests ✅
 
-`charts/tests/confirmation.test.js`: plain Node script (`ok`/`eq` helpers,
+`tests/confirmation.test.js`: plain Node script (`ok`/`eq` helpers,
 `process.exit(fail ? 1 : 0)`), covers T1, T2, T3, T4, T6, T11, T12 of
 `CandleImplementionplan.md` §9. It reads real files (`index.html`, `input/*.json`) with
 `fs`. Baseline at planning time: **259 passed, 0 failed**. It stays byte-untouched and
@@ -175,18 +179,18 @@ filter is active with these values.
 ### 3.3 Loading mechanism — ✅(Q1) Option A, decided
 
 ```text
-config/htf.json  ──(node charts/build-config.js)──▶  charts/config.js  ──<script>──▶  page
+config/htf.json  ──(node scripts/build-config.js)──▶  web/generated/config.js  ──<script>──▶  page
      ▲                                                  (generated, do not edit)
   single editable source of truth
 ```
 
-- `charts/build-config.js` (new, ~30 lines, mirrors `build-data.js` conventions): reads
+- `scripts/build-config.js` (new, ~30 lines, mirrors `build-data.js` conventions): reads
   `config/htf.json`, **fails loudly** (exit 1 with the JSON parse/structure error) on
-  malformed input, and writes `charts/config.js`:
+  malformed input, and writes `web/generated/config.js`:
 
 ```js
 /* Auto-generated from config/htf.json by build-config.js — do not edit by hand.
-   Run `node charts/build-config.js` after every change to config/htf.json. */
+   Run `node scripts/build-config.js` after every change to config/htf.json. */
 window.HTF_CONFIG = { …verbatim JSON… };
 ```
 
@@ -195,10 +199,10 @@ window.HTF_CONFIG = { …verbatim JSON… };
   devtools; the generator prints "config.js is up to date" when re-run unchanged.
 - **Documented requirement (Q1): the generator must be run after every configuration
   change**, stated in three places — the generated file's header comment, README §9
-  (next to the existing `node charts/build-data.js` instruction), and the plan's
+  (next to the existing `node scripts/build-data.js` instruction), and the plan's
   implementation sequence (§11 step 2).
 - Why not `fetch()` (rejected in round 1, restated for the record): Chrome blocks
-  `file://` fetch, and the documented primary usage is opening `charts/index.html` from
+  `file://` fetch, and the documented primary usage is opening `web/index.html` from
   disk — a JSON config silently ignored would violate "read from the configuration
   file". Option A keeps both the `file://` workflow and JSON as the single source.
 - Node tests bypass generation entirely: they read `config/htf.json` directly with
@@ -221,7 +225,7 @@ normalizeFilter(window.HTF_CONFIG)
 
 | Condition | Mode | Behavior |
 |---|---|---|
-| `raw` is `undefined`/`null` (generator never run / `config.js` missing) | `error` | fail closed + problem `"config not generated — run node charts/build-config.js"` (derived decision **D4**, see §10) |
+| `raw` is `undefined`/`null` (generator never run / `config.js` missing) | `error` | fail closed + problem `"config not generated — run node scripts/build-config.js"` (derived decision **D4**, see §10) |
 | no `sma_slope_filter` key in a present config object | `off` | deliberate absence ⇒ original behavior, unfiltered |
 | section present, `enabled === false` (strict boolean) | `off` | **deliberately disabled ⇒ original behavior**; remaining fields are inert and not validated |
 | section present, filter would be active (`enabled` is `true`, or `enabled` missing/not a boolean), and **any** field invalid | `error` | **fail closed**: no pattern can match; configuration error is displayed (below) |
@@ -443,7 +447,7 @@ condition readout shows the slope as unavailable (`slope –`) or failing (`slop
 | valid, `enabled: false` | `off` | **Deliberately disabled ⇒ original behavior**, byte-identical output; SMA/ATR are not computed at all, so missing history cannot affect results (remaining fields inert). |
 | section absent | `off` | same as deliberate disable |
 | present but **invalid** (incl. `enabled` missing or not a boolean) | `error` | **Fail closed (Q3):** no `Matched` ever; badge `HTF: Config error`, readout shows the first problem, console lists all. **Never** silently unfiltered. |
-| `config.js` never generated (`HTF_CONFIG` undefined) | `error` | fail closed with `config not generated — run node charts/build-config.js` (D4) |
+| `config.js` never generated (`HTF_CONFIG` undefined) | `error` | fail closed with `config not generated — run node scripts/build-config.js` (D4) |
 
 Independent of all this, the existing `HTF Confirmation` UI toggle keeps its meaning:
 it clears/restores the *visualization* only — including hiding the config-error
@@ -461,12 +465,12 @@ ever added.
 | # | File | Exists? | Current responsibility | Proposed change | Why needed | Regression risk |
 |---|---|---|---|---|---|---|
 | 1 | `config/htf.json` | ❌ new | — | create; content per §3.1 (shipped defaults, Q5) | mandated config source (task §2) | none (new file) |
-| 2 | `charts/build-config.js` | ❌ new | — | generator per §3.3: read JSON → write auto-generated `charts/config.js`; exit 1 on malformed JSON; header comment + printed reminder that it must be rerun after config changes; `sourceSha` embed | makes JSON loadable from `file://` (Q1) | none (new file) |
-| 3 | `charts/config.js` | ❌ new (generated) | — | `window.HTF_CONFIG = …`, header `do not edit; run build-config.js` | the page's plain-script config input | none (new file, loaded before app script) |
-| 4 | `charts/confirmation.js` | ✅ | pure five-candle rules + evaluator, required by tests | add pure `normalizeFilter` (three modes, exported), private `smaArray`/`atrArray` (Wilder, §4.1)/`slopeSeries`; `evaluate()` gains optional filter-mode handling per §5.1. **`evaluatePattern`, `isComplete`, `mapToLtf`, `latest`, `STATE` untouched** | slope needs the series; only `evaluate` has it; must stay Node-testable; fail-closed must live in the module so tests cover it | **medium** — core evaluator; mitigated by off-path byte-identity (T19/T25) + untouched baseline suite |
-| 5 | `charts/index.html` | ✅ | whole app | (a) `<script src="config.js"></script>` after `data.js`; (b) one `const SLOPE_FILTER = TC.normalizeFilter(window.HTF_CONFIG)` + single `console.warn` on error mode; (c) `getStates` passes the normalized object and includes its fingerprint in the cache key; (d) `drawConfirmLegend` appends the slope chip when active and the config-problem hint when in error mode; (e) badge text `HTF: Config error` in error mode | wiring, readout, and the Q3 error display | **low** — no series writes; no marker/band/badge-logic changes beyond the error text; readout additions only when not `off` |
-| 6 | `charts/tests/slope-filter.test.js` | ❌ new | — | new suite T13–T28 (§9), same no-framework style | keeps the 259-assertion baseline untouched as the regression oracle | none (new file) |
-| 7 | `README.md` | ✅ | docs | §1 files table (+4 rows), new "Configuration" subsection under §2 (**"run `node charts/build-config.js` after every config change"**), §6 filter paragraph + `Not Matched`/config-error wording, §9 regen command, §10 limitations (25m consequence, stale-config risk, fail-closed behavior) | task deliverable | docs only |
+| 2 | `scripts/build-config.js` | ❌ new | — | generator per §3.3: read JSON → write auto-generated `web/generated/config.js`; exit 1 on malformed JSON; header comment + printed reminder that it must be rerun after config changes; `sourceSha` embed | makes JSON loadable from `file://` (Q1) | none (new file) |
+| 3 | `web/generated/config.js` | ❌ new (generated) | — | `window.HTF_CONFIG = …`, header `do not edit; run build-config.js` | the page's plain-script config input | none (new file, loaded before app script) |
+| 4 | `src/confirmation.js` | ✅ | pure five-candle rules + evaluator, required by tests | add pure `normalizeFilter` (three modes, exported), private `smaArray`/`atrArray` (Wilder, §4.1)/`slopeSeries`; `evaluate()` gains optional filter-mode handling per §5.1. **`evaluatePattern`, `isComplete`, `mapToLtf`, `latest`, `STATE` untouched** | slope needs the series; only `evaluate` has it; must stay Node-testable; fail-closed must live in the module so tests cover it | **medium** — core evaluator; mitigated by off-path byte-identity (T19/T25) + untouched baseline suite |
+| 5 | `web/index.html` | ✅ | whole app | (a) `<script src="config.js"></script>` after `data.js`; (b) one `const SLOPE_FILTER = TC.normalizeFilter(window.HTF_CONFIG)` + single `console.warn` on error mode; (c) `getStates` passes the normalized object and includes its fingerprint in the cache key; (d) `drawConfirmLegend` appends the slope chip when active and the config-problem hint when in error mode; (e) badge text `HTF: Config error` in error mode | wiring, readout, and the Q3 error display | **low** — no series writes; no marker/band/badge-logic changes beyond the error text; readout additions only when not `off` |
+| 6 | `tests/slope-filter.test.js` | ❌ new | — | new suite T13–T28 (§9), same no-framework style | keeps the 259-assertion baseline untouched as the regression oracle | none (new file) |
+| 7 | `README.md` | ✅ | docs | §1 files table (+4 rows), new "Configuration" subsection under §2 (**"run `node scripts/build-config.js` after every config change"**), §6 filter paragraph + `Not Matched`/config-error wording, §9 regen command, §10 limitations (25m consequence, stale-config risk, fail-closed behavior) | task deliverable | docs only |
 | 8 | `CandleImplementionplan.md` | ✅ | prior feature's plan | optional one-line pointer to this plan | cross-reference | docs only |
 
 **No new dependencies. No second configuration source (JSON is the only editable source;
@@ -475,7 +479,7 @@ ever added.
 
 ### 7.1 SMA helper placement — ✅(Q5) decided: plotting utilities unchanged
 
-`smaNullable` ([index.html:405](charts/index.html#L405)) is an inline-script function:
+`smaNullable` ([index.html:405](../../web/index.html#L405)) is an inline-script function:
 not exported by any module, defined *after* `confirmation.js` loads, absent in Node —
 the pure module cannot call it without dependency injection that would make tests
 exercise different code than the page. Per **Q5**, the existing chart SMA utilities
@@ -525,9 +529,9 @@ No buy/sell signals, no alerting, no trading logic.
 
 ## 9. Test plan
 
-New file **`charts/tests/slope-filter.test.js`** (no-framework style, exit 1 on
-failure). Command: `node charts/tests/slope-filter.test.js`, alongside the untouched
-baseline `node charts/tests/confirmation.test.js`. Numbers continue the T-series from
+New file **`tests/slope-filter.test.js`** (no-framework style, exit 1 on
+failure). Command: `node tests/slope-filter.test.js`, alongside the untouched
+baseline `node tests/confirmation.test.js`. Numbers continue the T-series from
 `CandleImplementionplan.md` §9. **No tests are run and no results are claimed until
 implementation is approved.**
 
@@ -561,7 +565,7 @@ implementation is approved.**
 | T22 | 10 | **Three-mode fail-closed battery (Q3):** `normalizeFilter` table — missing `config.js` input (`undefined`) → `error` + regeneration hint (D4); section absent → `off`; `enabled:false` → `off` (siblings ignored); `enabled:"true"`/`enabled:1`/missing `enabled` → `error`; `method:"zscore"`, `sma_period:0/9.5/"9"`, `atr_period:-1`, `lookback:0`, `minimum_slope:"0.1"/NaN/−0.5` → `error` with expected `problems[]`; valid example → `active`, values round-trip; unknown extra key tolerated. **And** in `error` mode `evaluate()` on a fixture that *would* match under `active` emits `Not Matched` with `reason:'config-error'`, never `Matched`, while `k < 4` still emits `Unavailable` |
 | T23 | 11 | (a) Unit: slope changes when a candle at index `≤ k` of the array passed to `evaluate` changes — it is computed from *that* HTF array only, never from LTF data; (b) wiring: T12-style source extraction asserts `getStates` is called with `htfPanel.candles` (HTF), not `ltfPanel.candles`, and that the normalized filter object is forwarded to `TC.evaluate` |
 | T24 | 12 | No look-ahead, completed candles only, filter on (`active` and `error`): T4 truncation property (nothing emitted for incomplete candles; truncated result equals full result on shared keys); slice property — state at `k` from `candles.slice(0, k+1)` equals state from the full array; and slope at `k` never depends on any candle at index `> k` (lookback indices are completed whenever `k` is) |
-| T25 | 13 | Baseline preservation: re-run the existing T1/T2/T3 core assertions with mode `off` (byte-equal outcomes), **and** as an implementation gate run the untouched `node charts/tests/confirmation.test.js` (must stay at 259 passed / 0 failed) |
+| T25 | 13 | Baseline preservation: re-run the existing T1/T2/T3 core assertions with mode `off` (byte-equal outcomes), **and** as an implementation gate run the untouched `node tests/confirmation.test.js` (must stay at 259 passed / 0 failed) |
 | T26 | 14 | Browser checklist (existing preview-tab convention): mode `off` → markers, badge, both readouts, bands, sync, indicators identical to pre-change; mode `active` → **only removals** (a previously-matched candle keeps its marker or loses it, never changes color/position), slope chips render; mode `error` → badge reads `HTF: Config error`, readout shows the problem, no match markers, console carries the warning; toggling `HTF Confirmation` hides/shows it; console clean after every interaction; zero `setData` in any path |
 
 **Additional recommended (beyond the required 14):**
@@ -593,8 +597,8 @@ recommended.
   baseline suite unmodified.
 - **R2 (low) — readout markup drift.** `drawConfirmLegend` is hand-built HTML.
   Mitigation: mode-`off` output byte-compared in T26; only appended spans otherwise.
-- **R3 (medium, process) — stale `charts/config.js`.** Editing the JSON without rerunning
-  `node charts/build-config.js` keeps old behavior (the file still loads, so this is a
+- **R3 (medium, process) — stale `web/generated/config.js`.** Editing the JSON without rerunning
+  `node scripts/build-config.js` keeps old behavior (the file still loads, so this is a
   *stale* value, not a config error — the one silent case the page cannot detect from
   `file://`). Mitigations (Q1): header comment, README §9, generator prints
   "up to date"/regenerated messages, `sourceSha` embedded for eyeball checks. **Cannot
@@ -656,16 +660,16 @@ closed by the tables above.
 
 1. **Gate:** you explicitly approve this revision (no Q1–Q5 answers outstanding; O1–O4
    optional clarifications only).
-2. Create `config/htf.json` (§3.1, shipped defaults) and `charts/build-config.js`
-   (§3.3); run it; verify `charts/config.js` content, `sourceSha`, and that
+2. Create `config/htf.json` (§3.1, shipped defaults) and `scripts/build-config.js`
+   (§3.3); run it; verify `web/generated/config.js` content, `sourceSha`, and that
    `node -e "require('./config/htf.json')"` parses.
-3. `charts/confirmation.js`: add `smaArray`, `atrArray` (Wilder per §4.1),
+3. `src/confirmation.js`: add `smaArray`, `atrArray` (Wilder per §4.1),
    `slopeSeries` (private), `normalizeFilter` (exported, three modes), and the
    `evaluate()` mode handling (§5.1) — `evaluatePattern` untouched.
-4. Write `charts/tests/slope-filter.test.js` (T13–T24, T27–T28); run it until green.
-5. Re-run baseline `node charts/tests/confirmation.test.js` → must remain **259 passed /
+4. Write `tests/slope-filter.test.js` (T13–T24, T27–T28); run it until green.
+5. Re-run baseline `node tests/confirmation.test.js` → must remain **259 passed /
    0 failed** (T25 gate).
-6. `charts/index.html`: script tag, `SLOPE_FILTER` init + warn, `getStates` filter
+6. `web/index.html`: script tag, `SLOPE_FILTER` init + warn, `getStates` filter
    argument + cache fingerprint, `drawConfirmLegend` slope chip, badge/readout
    config-error display.
 7. Browser verification (T26): mode `off` byte-identical UI; mode `active` only
@@ -673,8 +677,8 @@ closed by the tables above.
    pairs; toggle, sync, crosshair, indicators, SENSEX; console clean; zero `setData`.
 8. Docs: README (§1, §2 configuration incl. the mandatory regen note, §6, §9, §10 with
    the 25m consequence) + optional pointer in `CandleImplementionplan.md`.
-9. Full test run: `node charts/tests/confirmation.test.js && node
-   charts/tests/slope-filter.test.js`.
+9. Full test run: `node tests/confirmation.test.js && node
+   tests/slope-filter.test.js`.
 10. Report results honestly, including per-TF match counts (T27) and anything that could
     not be verified.
 
@@ -684,9 +688,9 @@ closed by the tables above.
 
 **🛑 Stop here. Implementation must not begin until this revision is explicitly approved.**
 
-Until then, the following remain untouched: `charts/confirmation.js`,
-`charts/index.html`, test files, all configuration (**no `config/` directory, no
-generator, no `charts/config.js` has been created**), `build-data.js`/`data.js`, and
+Until then, the following remain untouched: `src/confirmation.js`,
+`web/index.html`, test files, all configuration (**no `config/` directory, no
+generator, no `web/generated/config.js` has been created**), `build-data.js`/`data.js`, and
 every other source file. **The only project change so far is this document, `htf_sma.md`,
 at the repository root.**
 
@@ -714,10 +718,10 @@ At approval, please state:
 > the pattern's own index, badge reads the latest eligible completed candle, no future
 > or incomplete data; **Q-P5** shipped with `enabled: true`.
 >
-> Delivered: `config/htf.json` second section + regenerated `charts/config.js`
+> Delivered: `config/htf.json` second section + regenerated `web/generated/config.js`
 > (sourceSha `47913ff9bf351c2e`); `normalizeSmaRsiFilter` + private `rsiArray` /
 > `rsiSmaSeries` + the AND-chained gate inside `evaluate()` (`evaluatePattern`
-> byte-for-byte untouched); `charts/tests/sma-rsi-filter.test.js` T29–T40 (133/0);
+> byte-for-byte untouched); `tests/sma-rsi-filter.test.js` T29–T40 (133/0);
 > index.html init, aggregated `CONFIG_ERROR` display, cache-key extension and the
 > `rsi` readout chip; README §1/§2/§6/§9/§10. Regression gates unmodified: 259/0 + 139/0.
 >
@@ -739,16 +743,16 @@ stay authoritative), to the data pipeline, or to chart styling/sync.
 ## P2. Existing architecture relevant to this feature ✅
 
 - **The calculation already exists for plotting.** `rsi(closes, 14)`
-  ([index.html:429](charts/index.html#L429), Wilder smoothing, first value at index 14)
-  and `smaNullable(values, period)` ([index.html:414](charts/index.html#L414)) are
+  ([index.html:429](../../web/index.html#L429), Wilder smoothing, first value at index 14)
+  and `smaNullable(values, period)` ([index.html:414](../../web/index.html#L414)) are
   combined in `Panel.render()` as `const rsiMa14 = smaNullable(rsi14, 14)`
-  ([index.html:827](charts/index.html#L827)) — **each panel already computes SMA 14 of
+  ([index.html:827](../../web/index.html#L827)) — **each panel already computes SMA 14 of
   RSI over its own candle series**, and the HTF panel's series is exactly the HTF data
   this filter needs. README §5.3 pins both conventions.
 - Neither function is reachable from the pure module (inline classic script, defined
   after `confirmation.js`, absent in Node) — so the Q5/§7.1 constraint stands: the
   plotting utilities stay untouched.
-- `charts/confirmation.js` already contains a private `smaArray` with semantics
+- `src/confirmation.js` already contains a private `smaArray` with semantics
   identical to `smaNullable` (added in Part I), plus Wilder `atrArray`. The module
   exports `STATE`, `isComplete`, `evaluatePattern`, `evaluate`, `mapToLtf`, `latest`,
   `normalizeFilter` (three-mode: off / active / fail-closed error).
@@ -756,12 +760,12 @@ stay authoritative), to the data pipeline, or to chart styling/sync.
   inside its active branch; every consumer (badge, markers, −2 outline, LTF bands, both
   readouts) reads only `state`/`pattern`, so a new gate inside `evaluate()` propagates
   everywhere without touching rendering code (§6.10 single source, T11 invariants).
-- The config pipeline shipped in Part I — `config/htf.json` → `node charts/build-config.js`
-  → `charts/config.js` → `SLOPE_FILTER = TC.normalizeFilter(window.HTF_CONFIG)` with
+- The config pipeline shipped in Part I — `config/htf.json` → `node scripts/build-config.js`
+  → `web/generated/config.js` → `SLOPE_FILTER = TC.normalizeFilter(window.HTF_CONFIG)` with
   `confirmFilterKey` cache fingerprinting, console warn, badge `HTF: Config error` and
   readout problem display — is generic and will simply carry a second section through.
-- Test oracles: `charts/tests/confirmation.test.js` (259/0) and
-  `charts/tests/slope-filter.test.js` (139/0), both green at the time of writing.
+- Test oracles: `tests/confirmation.test.js` (259/0) and
+  `tests/slope-filter.test.js` (139/0), both green at the time of writing.
 
 ## P3. Proposed configuration
 
@@ -791,11 +795,11 @@ sibling-key object —
   read **from the file only**; nothing is hard-coded in the evaluator (task §2 rule
   carried over from Part I).
 - **Mandatory workflow, documented prominently:** after editing `config/htf.json` the
-  user must run **`node charts/build-config.js`** *and* **reload `charts/index.html`** —
+  user must run **`node scripts/build-config.js`** *and* **reload `web/index.html`** —
   the page reads the generated `config.js` once at load, so a regeneration without a
   reload leaves the old values in memory. (Part I documented the regen step; this plan
   adds the explicit reload sentence to README §2 and §9.)
-- `charts/build-config.js` needs **no change**: it passes the whole JSON object through,
+- `scripts/build-config.js` needs **no change**: it passes the whole JSON object through,
   so the new section flows into `config.js` automatically.
 
 **Parameter semantics — ❓Q-P1:** `period` is read as the **SMA period applied to the
@@ -918,11 +922,11 @@ globally — there is still exactly one badge and one HTF readout.
 | # | File | Change | Why | Risk |
 |---|---|---|---|---|
 | 1 | `config/htf.json` | **add** the `sma_rsi_filter` section (P3); `sma_slope_filter` byte-identical at 0.10 | mandated config source | none (new section) |
-| 2 | `charts/confirmation.js` | add private `rsiArray(closes, period)` mirroring index.html's `rsi()` **byte-for-byte** (Wilder, seed = mean of first 14 changes, first value idx 14); **reuse the existing private `smaArray`** for the smoothing step; export `normalizeSmaRsiFilter`; `evaluate()` gains optional `opts.rsiFilter` and the P5 gate; error branch triggers on either section's error mode. `evaluatePattern`, `isComplete`, `mapToLtf`, `latest`, `normalizeFilter` **unchanged** | the gate must live where the states are made and be Node-testable; plotting code stays untouched per Q5/§7.1 | **medium** (core evaluator) — mitigated: `rsiFilter` absent ⇒ byte-identical output, both existing suites as oracles |
-| 3 | `charts/index.html` | `RSI_FILTER = TC.normalizeSmaRsiFilter(window.HTF_CONFIG)` + aggregated warn; `getStates` forwards `rsiFilter`; `confirmFilterKey` extended with the RSI fingerprint; `drawConfirmLegend` appends an `rsi 61.24 ✓/✗/–` chip per pattern group **only in mode `active`**; badge error text unchanged (problems now prefixed) | wiring + readout (P8) | **low** — no series writes; chip is an appended span; mode `off` renders byte-identical |
-| 4 | `charts/build-config.js` | **no change** — passes any top-level section through | whole-object pipeline | none |
-| 5 | `charts/tests/sma-rsi-filter.test.js` | **new** suite, tests T29–T40 (P9) | keeps both existing suites untouched as regression oracles | none |
-| 6 | `README.md` | §1 (+1 row), §2/§9: add the explicit **“run `node charts/build-config.js` AND reload `charts/index.html`”** sentence, §6 new subsection, §10 warm-up/15m/25m consequence | documentation requirement | docs only |
+| 2 | `src/confirmation.js` | add private `rsiArray(closes, period)` mirroring index.html's `rsi()` **byte-for-byte** (Wilder, seed = mean of first 14 changes, first value idx 14); **reuse the existing private `smaArray`** for the smoothing step; export `normalizeSmaRsiFilter`; `evaluate()` gains optional `opts.rsiFilter` and the P5 gate; error branch triggers on either section's error mode. `evaluatePattern`, `isComplete`, `mapToLtf`, `latest`, `normalizeFilter` **unchanged** | the gate must live where the states are made and be Node-testable; plotting code stays untouched per Q5/§7.1 | **medium** (core evaluator) — mitigated: `rsiFilter` absent ⇒ byte-identical output, both existing suites as oracles |
+| 3 | `web/index.html` | `RSI_FILTER = TC.normalizeSmaRsiFilter(window.HTF_CONFIG)` + aggregated warn; `getStates` forwards `rsiFilter`; `confirmFilterKey` extended with the RSI fingerprint; `drawConfirmLegend` appends an `rsi 61.24 ✓/✗/–` chip per pattern group **only in mode `active`**; badge error text unchanged (problems now prefixed) | wiring + readout (P8) | **low** — no series writes; chip is an appended span; mode `off` renders byte-identical |
+| 4 | `scripts/build-config.js` | **no change** — passes any top-level section through | whole-object pipeline | none |
+| 5 | `tests/sma-rsi-filter.test.js` | **new** suite, tests T29–T40 (P9) | keeps both existing suites untouched as regression oracles | none |
+| 6 | `README.md` | §1 (+1 row), §2/§9: add the explicit **“run `node scripts/build-config.js` AND reload `web/index.html`”** sentence, §6 new subsection, §10 warm-up/15m/25m consequence | documentation requirement | docs only |
 | 7 | `htf_sma.md` | this Part II | plan of record | docs only |
 
 **No new dependencies, no second configuration source, no unrelated refactoring.**
@@ -962,7 +966,7 @@ zero `setData` in any confirmation path, the existing config-error display.
 
 No buy/sell signals, no alerting, no trading logic; LTF readout row unchanged.
 
-## P9. Test plan — new file `charts/tests/sma-rsi-filter.test.js` (T29–T40)
+## P9. Test plan — new file `tests/sma-rsi-filter.test.js` (T29–T40)
 
 No-framework style like the others; both existing suites must pass **unmodified**.
 **No tests are run and no results are claimed until approval.**
@@ -979,7 +983,7 @@ No-framework style like the others; both existing suites must pass **unmodified*
 | T36 | No look-ahead | Truncation + slice properties (Part I T24 method) with both filters active; `rsiSma[k]` invariant when candles at index `> k` are mutated |
 | T37 | Warm-up / missing history | No `Matched` before index `13 + period` (27 at shipped period); `rsi`/`rsiA`/`rsiB` null before that, no throw; `k < 4` still `Unavailable` |
 | T38 | Combined behavior on real data | Both-on match set ⊆ slope-only ⊆ off (NIFTY + SENSEX × five HTFs); every additionally-removed match has base ∧ slope true ∧ RSI gate failed; print per-TF counts, indices rejected only by warm-up, and the 900s/1500s zero-match outcome |
-| T39 | Regression gates | `node charts/tests/confirmation.test.js` → 259/0 and `node charts/tests/slope-filter.test.js` → 139/0, both **untouched** |
+| T39 | Regression gates | `node tests/confirmation.test.js` → 259/0 and `node tests/slope-filter.test.js` → 139/0, both **untouched** |
 | T40 | Browser checklist (manual) | Chip renders with value; mode `off` ⇒ readout byte-identical; invalid section ⇒ badge `HTF: Config error` + prefixed hint, zero markers; toggle hides it; console clean; zero `setData`; TF lock/sync intact |
 
 ## P10. Risks, edge cases, open questions
@@ -1021,14 +1025,14 @@ keeps the T23 source anchors byte-stable; step 6's separate `RSI_FILTER` constan
 as `SLOPE_FILTER.rsi`, attached at init for the same reason).
 
 1. **Gate:** explicit approval of Part II + answers to Q-P1…Q-P5.
-2. Add `sma_rsi_filter` to `config/htf.json` (P3) → run `node charts/build-config.js`
+2. Add `sma_rsi_filter` to `config/htf.json` (P3) → run `node scripts/build-config.js`
    → verify `config.js` carries both sections + `sourceSha` → **reload the page**.
-3. `charts/confirmation.js`: private `rsiArray`, `normalizeSmaRsiFilter`, `opts.rsiFilter`
+3. `src/confirmation.js`: private `rsiArray`, `normalizeSmaRsiFilter`, `opts.rsiFilter`
    + gate (P5) — `evaluatePattern` and all Part I exports untouched.
-4. Write `charts/tests/sma-rsi-filter.test.js` (T29–T38) → green.
-5. Gates: `node charts/tests/slope-filter.test.js` → **139/0** and
-   `node charts/tests/confirmation.test.js` → **259/0**, both unmodified (T39).
-6. `charts/index.html`: `RSI_FILTER` init + aggregated warn, `getStates`/`confirmFilterKey`
+4. Write `tests/sma-rsi-filter.test.js` (T29–T38) → green.
+5. Gates: `node tests/slope-filter.test.js` → **139/0** and
+   `node tests/confirmation.test.js` → **259/0**, both unmodified (T39).
+6. `web/index.html`: `RSI_FILTER` init + aggregated warn, `getStates`/`confirmFilterKey`
    extension, readout chip (P7 #3).
 7. Browser verification T40 (all five TF pairs, SENSEX, toggle, error path via scratch
    config, restore, console clean).

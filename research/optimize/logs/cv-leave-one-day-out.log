@@ -1,0 +1,51 @@
+Cross-validation of the tuning procedure — 29 blocked folds of ~1 consecutive sessions, LTF 12s, 36s, objective winrate, min 10 trades on the training sessions, frozen C5, fine grid
+For each fold: tune on the OTHER folds (greedy, up to 5 changes), then trade the held-out fold with each stage. Pooling the held-out trades gives the honest result of "tune, then trade unseen days".
+Start config: /private/tmp/claude-501/-Users-mohammednadhims-Others-disc/331657e3-a855-4d16-8a77-6057cd8833f4/scratchpad/neutral.json
+
+Held-out results, all folds pooled (the trades of days the tuning never saw):
+changes allowed   trades   wins   win rate   P&L pts      PF   win-rate lower bound
+    0 (untuned)       39     16      41.0%    111.65    2.60       27.1%
+              1       18      9      50.0%     75.45    3.17       29.0%
+              2       15      5      33.3%     17.90    1.42       15.2%
+              3       18      6      33.3%     23.00    1.44       16.3%
+              4       12      3      25.0%     -1.65    0.96        8.9%
+              5       13      3      23.1%     -9.40    0.81        8.2%
+
+Per fold (held-out trades · win rate) for 0 changes / 1 / 2 / 3 and the change added at each step:
+  fold 1 (2026-09-09 … 2026-09-09, 1 sessions): 0·—  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 2 (2026-09-11 … 2026-09-11, 1 sessions): 1·0.0%  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 3 (2026-09-15 … 2026-09-15, 1 sessions): 2·0.0%  1·0.0%  1·0.0%  2·0.0%   steps: min_risk_points 2 → 3 | min_pct 0 → 0.005 | fast_period 9 → 11
+  fold 4 (2026-09-16 … 2026-09-16, 1 sessions): 2·50.0%  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 5 (2026-09-17 … 2026-09-17, 1 sessions): 2·50.0%  1·100.0%  1·100.0%  1·100.0%   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 6 (2026-09-18 … 2026-09-18, 1 sessions): 1·0.0%  1·0.0%  1·0.0%  1·0.0%   steps: min_risk_points 2 → 3 | min_pct 0 → 0.005 | max_pct 0.02 → 0.015
+  fold 7 (2026-09-21 … 2026-09-21, 1 sessions): 1·100.0%  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 8 (2026-09-22 … 2026-09-22, 1 sessions): 0·—  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 9 (2026-09-23 … 2026-09-23, 1 sessions): 1·0.0%  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 10 (2026-09-24 … 2026-09-24, 1 sessions): 1·0.0%  1·0.0%  0·—  0·—   steps: min_risk_points 2 → 3.5 | min_pct 0 → 0.005 | fast_period 9 → 11
+  fold 11 (2026-09-25 … 2026-09-25, 1 sessions): 1·0.0%  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 12 (2026-09-28 … 2026-09-28, 1 sessions): 3·66.7%  1·100.0%  1·100.0%  1·100.0%   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 13 (2026-09-29 … 2026-09-29, 1 sessions): 3·33.3%  1·0.0%  1·0.0%  1·0.0%   steps: min_risk_points 2 → 4 | pattern_b_max 32.5 → 40 | max_pct 0.02 → 0.015
+  fold 14 (2026-09-30 … 2026-09-30, 1 sessions): 2·50.0%  1·0.0%  1·0.0%  2·0.0%   steps: min_risk_points 2 → 3 | min_pct 0 → 0.005 | max_pct 0.02 → 0.03
+  fold 15 (2026-10-01 … 2026-10-01, 1 sessions): 0·—  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 16 (2026-10-05 … 2026-10-05, 1 sessions): 0·—  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 17 (2026-10-06 … 2026-10-06, 1 sessions): 1·0.0%  1·0.0%  1·0.0%  1·0.0%   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 18 (2026-10-07 … 2026-10-07, 1 sessions): 2·100.0%  1·100.0%  0·—  0·—   steps: min_risk_points 2 → 4 | fast_period 9 → 7 | max_risk_points 6 → 8
+  fold 19 (2026-10-08 … 2026-10-08, 1 sessions): 2·100.0%  2·100.0%  0·—  0·—   steps: min_risk_points 2 → 3 | pattern_b_max 32.5 → 27.5 | level 50 → 52.5
+  fold 20 (2026-10-09 … 2026-10-09, 1 sessions): 1·0.0%  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 21 (2026-10-12 … 2026-10-12, 1 sessions): 0·—  0·—  0·—  1·100.0%   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 22 (2026-10-13 … 2026-10-13, 1 sessions): 1·100.0%  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 23 (2026-10-14 … 2026-10-14, 1 sessions): 1·0.0%  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 24 (2026-10-15 … 2026-10-15, 1 sessions): 1·0.0%  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 25 (2026-10-16 … 2026-10-16, 1 sessions): 6·16.7%  3·33.3%  4·25.0%  4·25.0%   steps: min_risk_points 2 → 3.5 | max_risk_points 6 → 8 | min_pct 0 → 0.0025
+  fold 26 (2026-10-19 … 2026-10-19, 1 sessions): 0·—  0·—  0·—  0·—   steps: min_risk_points 2 → 4 | pattern_b_max 32.5 → 40 | scan_min_candles 1 → 2
+  fold 27 (2026-10-21 … 2026-10-21, 1 sessions): 2·100.0%  2·100.0%  1·100.0%  1·100.0%   steps: min_risk_points 2 → 3 | min_pct 0 → 0.005 | max_pct 0.02 → 0.03
+  fold 28 (2026-10-22 … 2026-10-22, 1 sessions): 1·100.0%  1·100.0%  2·50.0%  2·50.0%   steps: min_risk_points 2 → 4 | fast_period 9 → 7 | pattern_b_max 32.5 → 37.5
+  fold 29 (2026-10-23 … 2026-10-23, 1 sessions): 1·0.0%  1·0.0%  1·0.0%  1·0.0%   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+
+First change chosen in each fold (how stable the choice is): min_risk_points 2 → 4 ×22 ; min_risk_points 2 → 3 ×5 ; min_risk_points 2 → 3.5 ×2
+
+Best number of changes by held-out win-rate lower bound: 1
+Fitted on ALL sessions with 1 change(s): min_risk_points 2 → 4
+  untuned, all sessions   : 39 trades, 41.0% win, P&L 111.65, PF 2.60
+  tuned,   all sessions   : 13 trades, 69.2% win, P&L 92.85, PF 6.34   (in-sample — flattering)
+  expected on unseen days : about the held-out row for 1 change(s) above: 18 trades, 50.0% win, P&L 75.45 (pooled over 29 sessions)

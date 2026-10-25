@@ -1,0 +1,28 @@
+Cross-validation of the tuning procedure — 6 blocked folds of ~5 consecutive sessions, LTF 12s, 36s, objective winrate, min 10 trades on the training sessions, frozen C5, fine grid
+For each fold: tune on the OTHER folds (greedy, up to 5 changes), then trade the held-out fold with each stage. Pooling the held-out trades gives the honest result of "tune, then trade unseen days".
+Start config: /private/tmp/claude-501/-Users-mohammednadhims-Others-disc/331657e3-a855-4d16-8a77-6057cd8833f4/scratchpad/neutral.json
+
+Held-out results, all folds pooled (the trades of days the tuning never saw):
+changes allowed   trades   wins   win rate   P&L pts      PF   win-rate lower bound
+    0 (untuned)       39     16      41.0%    111.65    2.60       27.1%
+              1       15      9      60.0%     85.50    4.45       35.7%
+              2       13      7      53.8%     56.65    3.05       29.1%
+              3       13      7      53.8%     56.65    3.05       29.1%
+              4        8      3      37.5%     17.30    1.74       13.7%
+              5        9      3      33.3%      9.55    1.31       12.1%
+
+Per fold (held-out trades · win rate) for 0 changes / 1 / 2 / 3 and the change added at each step:
+  fold 1 (2026-09-09 … 2026-09-17, 5 sessions): 7·28.6%  1·100.0%  1·100.0%  1·100.0%   steps: min_risk_points 2 → 4 | sma_period 14 → 9 | pattern_b_max 32.5 → 40
+  fold 2 (2026-09-18 … 2026-09-24, 5 sessions): 4·25.0%  1·0.0%  0·—  0·—   steps: min_risk_points 2 → 3.5 | min_pct 0 → 0.005 | fast_period 9 → 11
+  fold 3 (2026-09-25 … 2026-10-01, 5 sessions): 9·44.4%  2·50.0%  2·50.0%  2·50.0%   steps: min_risk_points 2 → 4 | pattern_b_max 32.5 → 40 | max_risk_points 6 → 8
+  fold 4 (2026-10-05 … 2026-10-09, 5 sessions): 6·66.7%  4·75.0%  3·66.7%  3·66.7%   steps: min_risk_points 2 → 3.5 | min_pct 0 → 0.0025 | max_risk_points 6 → 8
+  fold 5 (2026-10-12 … 2026-10-16, 5 sessions): 9·22.2%  3·33.3%  4·25.0%  4·25.0%   steps: min_risk_points 2 → 3.5 | max_risk_points 6 → 8 | min_pct 0 → 0.0025
+  fold 6 (2026-10-19 … 2026-10-23, 4 sessions): 4·75.0%  4·75.0%  3·66.7%  3·66.7%   steps: min_risk_points 2 → 3 | min_pct 0 → 0.005 | max_pct 0.02 → 0.03
+
+First change chosen in each fold (how stable the choice is): min_risk_points 2 → 3.5 ×3 ; min_risk_points 2 → 4 ×2 ; min_risk_points 2 → 3 ×1
+
+Best number of changes by held-out win-rate lower bound: 1
+Fitted on ALL sessions with 1 change(s): min_risk_points 2 → 4
+  untuned, all sessions   : 39 trades, 41.0% win, P&L 111.65, PF 2.60
+  tuned,   all sessions   : 13 trades, 69.2% win, P&L 92.85, PF 6.34   (in-sample — flattering)
+  expected on unseen days : about the held-out row for 1 change(s) above: 15 trades, 60.0% win, P&L 85.50 (pooled over 29 sessions)

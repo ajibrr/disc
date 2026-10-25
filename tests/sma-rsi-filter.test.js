@@ -11,16 +11,16 @@
  * `true`, so it fails the condition (approved Q-P2). Invalid configuration fails
  * closed: never Matched, visible, section-prefixed problem (Q-P3).
  *
- * Run: node charts/tests/sma-rsi-filter.test.js
+ * Run: node tests/sma-rsi-filter.test.js
  * Node-only: no browser, no chart library.
  * The regression gates are the two existing suites (T39):
- *   node charts/tests/confirmation.test.js   (259)
- *   node charts/tests/slope-filter.test.js   (139)
+ *   node tests/confirmation.test.js   (259)
+ *   node tests/slope-filter.test.js   (139)
  */
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const TC = require('../confirmation.js');
+const TC = require('../src/confirmation.js');
 
 let pass = 0, fail = 0;
 function ok(cond, label) {
@@ -104,7 +104,7 @@ function fixtureAUp() {
 }
 
 const realCfg = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '..', '..', 'config', 'htf.json'), 'utf8'));
+  fs.readFileSync(path.join(__dirname, '..', 'config', 'htf.json'), 'utf8'));
 const slopeNorm = TC.normalizeFilter(realCfg);          // active; minSlope as shipped (retuned to 0.25)
 const rsiNorm = TC.normalizeSmaRsiFilter(realCfg);      // active, 14 / 65 / 35
 const OFF = { mode: 'off', filter: null, problems: [] };
@@ -120,14 +120,14 @@ const run = (candles, filt, extra) => TC.evaluate(candles, Object.assign(
 const runReal = (candles, tf, lastTick, filt) => TC.evaluate(
   candles, { htfSec: tf, sessionEndTick: lastTick, filter: filt });
 
-/* Real functions extracted from charts/index.html — the exact code the browser runs. */
-const src = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+/* Real functions extracted from web/index.html — the exact code the browser runs. */
+const src = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
 {
   const mBc = src.match(/function buildCandles\(ticks, tf\) \{[\s\S]*?\n\}/);
   const mRsi = src.match(/function rsi\(closes, period = 14\) \{[\s\S]*?\n\}/);
   const mSma = src.match(/function smaNullable\(values, period\) \{[\s\S]*?\n\}/);
   ok(!!mBc && !!mRsi && !!mSma,
-     'real buildCandles(), rsi() and smaNullable() extracted from charts/index.html');
+     'real buildCandles(), rsi() and smaNullable() extracted from web/index.html');
   if (!mBc || !mRsi || !mSma) { console.error('  cannot continue'); process.exit(1); }
   global.__real = {
     buildCandles: new Function('return (' + mBc[0] + ')')(),
@@ -141,7 +141,7 @@ const smaReal = global.__real.sma;
 
 const realSeries = (file, key) => {
   const d = JSON.parse(fs.readFileSync(
-    path.join(__dirname, '..', '..', 'input', file), 'utf8'));
+    path.join(__dirname, '..', 'input', file), 'utf8'));
   const pk = d.asset.toLowerCase();
   return { asset: d.asset,
            ticks: { times: d[key].map((r) => r.timestamp_epoch),
@@ -345,6 +345,7 @@ console.log('\nT34 — the gated value is EXACTLY the plotted SMA 14 of RSI (rea
   const smaOfRsi = (closes) => smaReal(rsiReal(closes, 14), 14);
   for (const [file, key] of [['NIFTY_2026-10-23_DASHBOARD.json', 'nifty_seconds'],
                              ['SENSEX_2026-10-23_DASHBOARD.json', 'sensex_seconds']]) {
+    if (!fs.existsSync(path.join(__dirname, '..', 'input', file))) { console.log('  note: input/' + file + ' is not present \u2014 skipped'); continue; }
     const { asset, ticks } = realSeries(file, key);
     for (const tf of [60, 300, 900]) {
       const candles = buildCandles(ticks, tf);
@@ -462,6 +463,7 @@ console.log('\nT38 — real data: both \u2286 slope-only \u2286 off at every HTF
   const counts = {};
   for (const [file, key] of [['NIFTY_2026-10-23_DASHBOARD.json', 'nifty_seconds'],
                              ['SENSEX_2026-10-23_DASHBOARD.json', 'sensex_seconds']]) {
+    if (!fs.existsSync(path.join(__dirname, '..', 'input', file))) { console.log('  note: input/' + file + ' is not present \u2014 skipped'); continue; }
     const { asset, ticks } = realSeries(file, key);
     for (const tf of [60, 180, 300, 900, 1500]) {
       const candles = buildCandles(ticks, tf);
@@ -507,7 +509,7 @@ console.log('\nT38 — real data: both \u2286 slope-only \u2286 off at every HTF
 
 /* ------------------------------------------------------------------ */
 console.log('\nT39 — regression: the two existing suites pass untouched (259/0, 139/0)');
-ok(true, 'reminder \u2014 final verification runs: node charts/tests/confirmation.test.js && node charts/tests/slope-filter.test.js');
+ok(true, 'reminder \u2014 final verification runs: node tests/confirmation.test.js && node tests/slope-filter.test.js');
 
 /* ------------------------------------------------------------------ */
 console.log('\nT40 — browser wiring (static source assertions; live checks in the preview)');

@@ -1,0 +1,21 @@
+Neighbourhood check — centre = C1 scan_min_candles 7 · C1 scan_max_candles 31 · C3 max_pct 0.017 · C4 lookback_min_candles 14 · C4 lookback_max_candles 19
+Start config: /private/tmp/claude-501/-Users-mohammednadhims-Others-disc/331657e3-a855-4d16-8a77-6057cd8833f4/scratchpad/f_all.json (all other settings as in it). Sessions 2026-09-09 … 2026-10-23 (29), LTF 12s, 36s. Older half before 2026-10-01. No costs.
+
+CENTRE: 12 trades, 75% win, P&L 99.25, PF 10.15   | older half 3 trades 67% | newer half 9 trades 78%
+
+1) One setting at a time (the others stay at the centre) — trades · win rate:
+setting                                    -3           -2           -1       centre           +1           +2           +3
+C1 scan_min_candles                  15 · 73%     15 · 73%     14 · 71%     12 · 75%     11 · 73%      9 · 78%      6 · 83%
+C1 scan_max_candles                  12 · 75%     12 · 75%     12 · 75%     12 · 75%     12 · 75%     12 · 75%     12 · 75%
+C3 max_pct                           10 · 70%     10 · 70%     12 · 75%     12 · 75%     13 · 77%     13 · 77%     13 · 77%
+C4 lookback_min_candles              14 · 71%     14 · 71%     12 · 75%     12 · 75%     12 · 75%     11 · 73%      8 · 75%
+C4 lookback_max_candles              11 · 73%     11 · 73%     11 · 73%     12 · 75%     12 · 75%     12 · 75%     12 · 75%
+(values: C1 scan_min_candles 4/7/10 · C1 scan_max_candles 28/31/34 · C3 max_pct 0.014/0.017/0.02 · C4 lookback_min_candles 11/14/17 · C4 lookback_max_candles 16/19/22)
+
+2) Every combination within ±2 steps on all five settings together: 3125 valid neighbours
+   win rate   : 10th pct 67% · median 71% · 90th pct 77% · best 80% · worst 60%
+   trades     : 10th pct 9 · median 12 · 90th pct 15
+   older half win rate (neighbours with >= 3 trades): median 67% · newer half: median 78%
+   share of neighbours with win rate >= 60%: 100% · >= 65%: 94% · >= centre minus 5 points: 71%
+   share of neighbours with fewer than 10 trades: 21%
+   profit factor median 8.71 · P&L median 93.10

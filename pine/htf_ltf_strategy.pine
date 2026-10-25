@@ -1,0 +1,389 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// TickCharts — HTF Pattern A/B + LTF chain C1→C5  (strategy: entry, stop loss, target, hard exit)
+//
+// Port of the JavaScript simulation in this repo (src/confirmation.js, ltf-conditions.js, trade-sim.js).
+// Rules are documented in docs/algorithm.md and docs/strategy.md. Defaults = config/*.json as shipped.
+//
+// HOW TO USE
+//   • Put it on a seconds / minutes chart of NIFTY (NSE:NIFTY). That chart is the LTF; HTF = LTF × ratio (5).
+//     The project runs on the 12-second (HTF 1 minute) and 36-second (HTF 3 minutes) charts only. Seconds charts need a
+//     TradingView plan that offers them, and history on them is short.
+//   • Add to chart, open the Strategy Tester. Orders fill at the next bar's open, as in the JS simulation.
+//
+// WHAT IT DOES
+//   HTF  every completed HTF candle is tested for Pattern A (long) / B (short): five-candle shape + SMA-9 slope
+//        (ATR-normalised) + SMA-14 of RSI-14. A Matched candle opens a "zone" (its own LTF bars).
+//   LTF  inside / after the zone (up to `scan` bars from the zone's first bar) a bar that passes C1→C5 is the
+//        signal ("E") candle: C1 RSI crosses 50, C2 SMA9 vs SMA44, C3 spread band, C4 SMA-of-RSI extreme in the
+//        previous 20 bars, C5 back distance > 2 × E distance, C6 E distance (= the trade's risk) inside a range (3.5 to 8 points).
+//   ENTRY   open of the next bar (an E bar inside the zone enters at the first bar after the zone closes).
+//   STOP    entry ∓ stopMult × E distance (E distance = risk)
+//   TARGET  "Previous extreme" (default): the highest high (long) / lowest low (short) of the C5 back window — the 20 bars
+//           before the E bar; or "Multiple": entry ± targetMult × E distance
+//   EXIT    stop / target, or hard exit at 15:19 IST; no new entry from 15:10 IST; one position at a time.
+//
+// DIFFERENCES FROM THE JAVASCRIPT BACK-TEST — read before comparing numbers
+//   1. Stop and target are checked against bar OHLC, not second-by-second ticks. If both lie inside one bar
+//      TradingView assumes a price path (enable "Use bar magnifier" in Properties for a better one).
+//   2. The OI-change HTF filter is NOT ported (it is off in config and TradingView has no CE/PE OI series).
+//   3. Real-time zone handling: when a newer zone matches it replaces the older one from then on. The JS
+//      back-test also drops older-zone signals on the newer zone's own bars once it is known to match
+//      (hindsight); here such a signal may already have been taken.
+//   4. TradingView bars come from its own feed: OHLC can differ slightly from the tick files, and a second
+//      with no trade makes no bar (the JS code forward-fills). The HTF candle is built from LTF bars and
+//      relies on the last LTF bar of each HTF bucket existing; a missing bar loses that HTF candle.
+//   5. Costs: use Properties → Commission / Slippage (the JS `round_trip_cost_points` has no input here).
+//   6. All state (HTF candles, RSI, zones) resets at the start of each trading day, like the per-session
+//      back-test. Sessions are assumed to start on an HTF boundary (NSE 09:15 does for 1/3/5/15/25 min).
+//   7. NOT compiled or back-tested here: paste into the Pine Editor, fix anything the compiler reports and
+//      compare a few days against `node scripts/run-backtest.js --trades` before trusting it.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+strategy("TickCharts HTF Pattern + LTF C1–C5", shorttitle="TC HTF+LTF", overlay=true, max_bars_back=500,
+         max_labels_count=500, calc_on_every_tick=false, process_orders_on_close=false, pyramiding=0,
+         initial_capital=1000000, default_qty_type=strategy.fixed, default_qty_value=1)
+
+// ───────────────────────────────────────── inputs ─────────────────────────────────────────
+G_HTF = "HTF pattern filters"
+htfRatio  = input.int(5, "HTF = LTF ×", minval=2, group=G_HTF, tooltip="Locked 5:1 in the project (12s→1m, 36s→3m, 60s→5m, 180s→15m, 300s→25m).")
+useSlope  = input.bool(true, "SMA slope filter (ATR-normalised)", group=G_HTF)
+slopeSma  = input.int(9, "  SMA period", minval=2, group=G_HTF)
+slopeAtr  = input.int(14, "  ATR period (Wilder)", minval=2, group=G_HTF)
+slopeLb   = input.int(3, "  Lookback candles", minval=1, group=G_HTF)
+slopeMin  = input.float(0.25, "  Minimum slope", minval=0.0, step=0.05, group=G_HTF, tooltip="A needs slope > min, B needs slope < −min.")
+useRsiF   = input.bool(true, "SMA-of-RSI filter", group=G_HTF)
+rsiFSma   = input.int(14, "  SMA length of RSI(14)", minval=1, group=G_HTF)
+rsiAmax   = input.float(65.0, "  Pattern A: SMA-of-RSI below", group=G_HTF)
+rsiBmin   = input.float(35.0, "  Pattern B: SMA-of-RSI above", group=G_HTF)
+
+G_LTF = "LTF conditions"
+scanMin   = input.int(1, "C1 scan: first bar (1 = the zone's first bar)", minval=1, group=G_LTF)
+scanN     = input.int(20, "C1 scan: last bar (position from the zone's first bar)", minval=1, group=G_LTF)
+c1Rsi     = input.int(14, "C1 RSI period", minval=2, group=G_LTF)
+c1Level   = input.float(50.0, "C1 RSI cross level", group=G_LTF)
+fastP     = input.int(9, "C2 fast SMA", minval=1, group=G_LTF)
+slowP     = input.int(44, "C2 slow SMA", minval=2, group=G_LTF)
+spMin     = input.float(0.0, "C3 spread min %", minval=0.0, step=0.005, group=G_LTF)
+spMax     = input.float(0.02, "C3 spread max %", minval=0.0, step=0.005, group=G_LTF)
+c4RsiP    = input.int(14, "C4 RSI period", minval=2, group=G_LTF)
+c4SmaP    = input.int(14, "C4 SMA length of RSI", minval=1, group=G_LTF)
+c4LookMin = input.int(1, "C4 look-back: nearest bar (1 = the bar just before the E bar)", minval=1, group=G_LTF)
+c4Look    = input.int(20, "C4 look-back: farthest bar", minval=1, group=G_LTF)
+c4AMin    = input.float(67.5, "C4 Pattern A: SMA-of-RSI above (exclusive)", group=G_LTF)
+c4AMax    = input.float(100.0, "C4 Pattern A: SMA-of-RSI up to (inclusive)", group=G_LTF)
+c4BMin    = input.float(0.0, "C4 Pattern B: SMA-of-RSI from (inclusive)", group=G_LTF)
+c4BMax    = input.float(32.5, "C4 Pattern B: SMA-of-RSI below (exclusive)", group=G_LTF)
+c5Back    = input.int(20, "C5 back bars", minval=1, group=G_LTF)
+c5Mult    = input.float(2.0, "C5 distance multiplier", minval=0.1, step=0.1, group=G_LTF)
+useRiskRange = input.bool(true, "C6 risk range (E distance between)", group=G_LTF, tooltip="Long and short alike: the E candle distance (the stop distance) must be at least the minimum and strictly below the maximum.")
+minRisk   = input.float(3.5, "  Minimum risk (points, inclusive)", minval=0.0, step=0.05, group=G_LTF)
+maxRisk   = input.float(8.0, "  Maximum risk (points, exclusive)", minval=0.05, step=0.05, group=G_LTF)
+
+G_TR = "Trade rules"
+stopMult  = input.float(1.0, "Stop = × E distance", minval=0.1, step=0.1, group=G_TR)
+tgtMode   = input.string("Previous extreme", "Target", options=["Previous extreme", "Multiple of E distance"], group=G_TR, tooltip="Previous extreme: long targets the highest high, short the lowest low of the C5 back window (the bars before the E bar). Multiple: entry ± the multiple below × E distance.")
+tgtMult   = input.float(2.0, "  Multiple of E distance (if chosen)", minval=0.1, step=0.1, group=G_TR)
+allowLong = input.bool(true, "Trade Pattern A (long)", group=G_TR)
+allowShort = input.bool(true, "Trade Pattern B (short)", group=G_TR)
+useNoEntry = input.bool(true, "No new entry from (IST)", group=G_TR, inline="ne")
+noEntryStr = input.string("15:10", "", group=G_TR, inline="ne")
+useHard   = input.bool(true, "Hard exit at (IST)", group=G_TR, inline="hx")
+hardStr   = input.string("15:19", "", group=G_TR, inline="hx")
+showLabels = input.bool(true, "Show zone / signal labels", group=G_TR)
+
+f_hhmm(string s) =>
+    array<string> p = str.split(s, ":")
+    int h = int(str.tonumber(array.get(p, 0)))
+    int m = int(str.tonumber(array.get(p, 1)))
+    h * 60 + m
+int noEntryMin = f_hhmm(noEntryStr)
+int hardMin    = f_hhmm(hardStr)
+
+// ───────────────────────────────────── session & bucket helpers ─────────────────────────────────────
+int ltfSec = timeframe.in_seconds()
+int htfSec = ltfSec * htfRatio
+f_bucket(int tMs) => int(math.floor(tMs / 1000.0 / htfSec))
+
+bool newSession = barstate.isfirst or timeframe.change("D")
+var int sessBar = -1
+sessBar := newSession ? 0 : sessBar + 1           // 0-based index of this bar inside the day
+
+// ───────────────────────────────────── LTF series (session-reset) ─────────────────────────────────────
+// Wilder RSI that restarts every day, exactly like the per-session JavaScript (first value at index `len`).
+f_rsi(int len) =>
+    var float ag = na
+    var float al = na
+    var float gs = 0.0
+    var float ls = 0.0
+    float r = na
+    if sessBar == 0
+        ag := na
+        al := na
+        gs := 0.0
+        ls := 0.0
+    else
+        float d = close - close[1]
+        float g = math.max(d, 0.0)
+        float l = math.max(-d, 0.0)
+        if sessBar <= len
+            gs += g
+            ls += l
+            if sessBar == len
+                ag := gs / len
+                al := ls / len
+                r := al == 0 ? 100.0 : 100.0 - 100.0 / (1.0 + ag / al)
+        else
+            ag := (ag * (len - 1) + g) / len
+            al := (al * (len - 1) + l) / len
+            r := al == 0 ? 100.0 : 100.0 - 100.0 / (1.0 + ag / al)
+    r
+
+float rsiC1   = f_rsi(c1Rsi)                       // C1
+float rsiC4   = f_rsi(c4RsiP)                      // C4
+float rsiC4Ma = ta.sma(rsiC4, c4SmaP)              // C4: SMA of RSI (na until its window is clean)
+float smaFast = ta.sma(close, fastP)               // C2 / C3
+float smaSlow = ta.sma(close, slowP)
+
+// Signal test for the bar `o` bars ago and pattern `pat` (1 = A, −1 = B).
+// Returns [passes C1..C5, E distance]. Only bars at or before the E bar are read (no look-ahead).
+f_sig(int o, int pat) =>
+    bool res = false
+    float eDist = na
+    float tgtPx = na                                // the C5 back high (A) / back low (B): the "previous extreme" target
+    int idxE = sessBar - o                         // session index of the E bar
+    if idxE >= 1 and idxE >= slowP - 1
+        float r0 = rsiC1[o]
+        float r1 = rsiC1[o + 1]
+        bool k1 = pat == 1 ? (r1 < c1Level and r0 > c1Level) : (r1 > c1Level and r0 < c1Level)
+        if k1
+            float f0 = smaFast[o]
+            float s0 = smaSlow[o]
+            bool k2 = pat == 1 ? f0 > s0 : f0 < s0
+            if k2
+                float sp = (f0 - s0) / s0 * 100.0
+                bool k3 = pat == 1 ? (sp > spMin and sp <= spMax) : (sp < -spMin and sp >= -spMax)
+                if k3
+                    bool k4 = false
+                    int jMax = math.min(c4Look, idxE)
+                    if jMax >= c4LookMin                                   // (a Pine loop would run backwards if the start were above the end)
+                        for j = c4LookMin to jMax
+                            if idxE - j >= c4RsiP + c4SmaP - 1
+                                float v = rsiC4Ma[o + j]
+                                if not na(v) and (pat == 1 ? (v > c4AMin and v <= c4AMax) : (v < c4BMax and v >= c4BMin))
+                                    k4 := true
+                                    break
+                    if k4
+                        float dE = pat == 1 ? high[o] - low[o + 1] : high[o + 1] - low[o]
+                        if dE > 0
+                            int bMax = math.min(c5Back, idxE)
+                            float best = pat == 1 ? -1.0e18 : 1.0e18
+                            for j = 1 to bMax
+                                best := pat == 1 ? math.max(best, high[o + j]) : math.min(best, low[o + j])
+                            float backD = pat == 1 ? best - high[o] : low[o] - best
+                            if backD > c5Mult * dE and (not useRiskRange or (dE >= minRisk and dE < maxRisk))
+                                res := true
+                                eDist := dE
+                                tgtPx := best
+    [res, eDist, tgtPx]
+
+// ───────────────────────────────────────── HTF candles ─────────────────────────────────────────
+var array<float> hO = array.new<float>()
+var array<float> hH = array.new<float>()
+var array<float> hL = array.new<float>()
+var array<float> hC = array.new<float>()
+var array<float> hRsi = array.new<float>()
+var float hAtr = na
+var float hTrSum = 0.0
+var float hGain = 0.0
+var float hLoss = 0.0
+var float hAg = na
+var float hAl = na
+var int cBucket = -1
+var float cO = na
+var float cH = na
+var float cL = na
+var int cFirst = 0
+var int zonePat = 0                                // 0 none, 1 = A, −1 = B
+var int zoneFrom = -1                              // bar_index of the zone's first bar
+var int zoneClose = -1                             // bar_index of the zone's last bar (the HTF close)
+var float riskPts = na                             // E distance of the latest signal (stop distance unit)
+var float targetPx = na                            // previous-extreme target price of the latest signal
+
+f_avg(array<float> a, int lo, int hi) =>
+    float s = 0.0
+    for i = lo to hi
+        s += array.get(a, i)
+    s / (hi - lo + 1)
+
+if newSession
+    array.clear(hO)
+    array.clear(hH)
+    array.clear(hL)
+    array.clear(hC)
+    array.clear(hRsi)
+    hAtr := na
+    hTrSum := 0.0
+    hGain := 0.0
+    hLoss := 0.0
+    hAg := na
+    hAl := na
+    cBucket := -1
+    zonePat := 0
+    zoneFrom := -1
+    zoneClose := -1
+
+int bkt = f_bucket(time)
+if bkt != cBucket
+    cBucket := bkt
+    cO := open
+    cH := high
+    cL := low
+    cFirst := bar_index
+else
+    cH := math.max(cH, high)
+    cL := math.min(cL, low)
+bool lastOfHtf = f_bucket(time_close) != bkt       // this bar completes the HTF candle
+
+bool zoneNow = false                               // an HTF candle matched on this very bar
+if lastOfHtf
+    array.push(hO, cO)
+    array.push(hH, cH)
+    array.push(hL, cL)
+    array.push(hC, close)
+    int k = array.size(hC) - 1                     // index of the HTF candle that just closed
+
+    // Wilder ATR: seed = mean of true ranges 1..period, then recursion
+    if k >= 1
+        float pc = array.get(hC, k - 1)
+        float tr = math.max(cH - cL, math.max(math.abs(cH - pc), math.abs(cL - pc)))
+        if k <= slopeAtr
+            hTrSum += tr
+            if k == slopeAtr
+                hAtr := hTrSum / slopeAtr
+        else
+            hAtr := (hAtr * (slopeAtr - 1) + tr) / slopeAtr
+
+    // Wilder RSI(14) of the HTF closes
+    float rsiK = na
+    if k >= 1
+        float d = close - array.get(hC, k - 1)
+        float g = math.max(d, 0.0)
+        float l = math.max(-d, 0.0)
+        if k <= 14
+            hGain += g
+            hLoss += l
+            if k == 14
+                hAg := hGain / 14
+                hAl := hLoss / 14
+                rsiK := hAl == 0 ? 100.0 : 100.0 - 100.0 / (1.0 + hAg / hAl)
+        else
+            hAg := (hAg * 13 + g) / 14
+            hAl := (hAl * 13 + l) / 14
+            rsiK := hAl == 0 ? 100.0 : 100.0 - 100.0 / (1.0 + hAg / hAl)
+    array.push(hRsi, rsiK)
+
+    // ATR-normalised slope of the SMA of closes
+    float slopeK = na
+    int minIdx = math.max(slopeSma - 1 + slopeLb, slopeAtr)
+    if k >= minIdx and not na(hAtr) and hAtr > 0
+        float sma0 = f_avg(hC, k - slopeSma + 1, k)
+        float sma1 = f_avg(hC, k - slopeLb - slopeSma + 1, k - slopeLb)
+        slopeK := (sma0 - sma1) / hAtr
+
+    // SMA of RSI (first value at index 13 + length)
+    float rsiMaK = na
+    if k >= 13 + rsiFSma
+        rsiMaK := f_avg(hRsi, k - rsiFSma + 1, k)
+
+    // five-candle shape: c1 = candle k (newest) … c5 = candle k−4
+    int pat = 0
+    if k >= 4
+        float h1 = array.get(hH, k)
+        float l1 = array.get(hL, k)
+        float o1 = array.get(hO, k)
+        float cl1 = array.get(hC, k)
+        float h2 = array.get(hH, k - 1)
+        float l2 = array.get(hL, k - 1)
+        float o2 = array.get(hO, k - 1)
+        float cl2 = array.get(hC, k - 1)
+        float h3 = array.get(hH, k - 2)
+        float h4 = array.get(hH, k - 3)
+        float h5 = array.get(hH, k - 4)
+        bool shapeA = h2 > h1 and l2 > l1 and cl2 < o2 and cl1 < o1 and ((h2 > h3 and h2 > h4 and h2 > h5) or (h3 > h4 and h3 > h5))
+        bool shapeB = h2 < h1 and l2 < l1 and cl2 > o2 and cl1 > o1 and ((h2 < h3 and h2 < h4 and h2 < h5) or (h3 < h4 and h3 < h5))
+        bool okA = shapeA and (not useSlope or (not na(slopeK) and slopeK > slopeMin)) and (not useRsiF or (not na(rsiMaK) and rsiMaK < rsiAmax))
+        bool okB = shapeB and (not useSlope or (not na(slopeK) and slopeK < -slopeMin)) and (not useRsiF or (not na(rsiMaK) and rsiMaK > rsiBmin))
+        pat := okA ? 1 : okB ? -1 : 0
+
+    if pat != 0                                    // Matched: its own LTF bars are the zone; it replaces any older zone
+        zonePat := pat
+        zoneFrom := cFirst
+        zoneClose := bar_index
+        zoneNow := true
+        if showLabels
+            label.new(bar_index, pat == 1 ? low : high, pat == 1 ? "HTF A" : "HTF B",
+                      style = pat == 1 ? label.style_label_up : label.style_label_down,
+                      color = pat == 1 ? color.new(color.green, 20) : color.new(color.red, 20),
+                      textcolor = color.white, size = size.tiny)
+
+// ───────────────────────────────────── signal search ─────────────────────────────────────
+// • On the bar that closes a Matched zone: look back over the zone's own bars (the pattern was not knowable
+//   earlier) and take the FIRST bar that passes C1..C5 — it enters at the next bar's open.
+// • On later bars of the scan span: test the bar that just closed.
+float sigRisk = na
+float sigTgt = na
+int sigOff = -1
+if zonePat != 0 and bar_index <= zoneFrom + scanN - 1
+    if zoneNow
+        for o = bar_index - zoneFrom to 0
+            if bar_index - o - zoneFrom + 1 >= scanMin                  // C1 scan range: position counted from the zone's first bar
+                [okZ, dZ, tZ] = f_sig(o, zonePat)
+                if okZ
+                    sigRisk := dZ
+                    sigTgt := tZ
+                    sigOff := o
+                    break
+    else if bar_index > zoneClose and bar_index - zoneFrom + 1 >= scanMin
+        [okN, dN, tN] = f_sig(0, zonePat)
+        if okN
+            sigRisk := dN
+            sigTgt := tN
+            sigOff := 0
+
+bool haveSig = sigOff >= 0 and not na(sigRisk) and sigRisk > 0
+if haveSig and showLabels
+    label.new(bar_index - sigOff, zonePat == 1 ? low[sigOff] : high[sigOff], "E",
+              style = zonePat == 1 ? label.style_label_up : label.style_label_down,
+              color = color.new(color.fuchsia, 10), textcolor = color.white, size = size.tiny)
+
+// ───────────────────────────────────── entry, stop loss, target, hard exit ─────────────────────────────────────
+// The next bar opens when this one closes, so its IST clock time is this bar's close time.
+int nextOpenMin = hour(time_close, "Asia/Kolkata") * 60 + minute(time_close, "Asia/Kolkata")
+bool entryWindowOk = (not useNoEntry or nextOpenMin < noEntryMin) and (not useHard or nextOpenMin < hardMin)
+
+bool usePrevExt = tgtMode == "Previous extreme"
+// previous-extreme target must still lie beyond the price (the JS back-test skips such a signal: "target-behind-entry")
+bool targetAhead = not usePrevExt or (zonePat == 1 ? sigTgt > close : sigTgt < close)
+if haveSig and strategy.position_size == 0 and entryWindowOk and targetAhead
+    riskPts := sigRisk
+    targetPx := sigTgt
+    if zonePat == 1 and allowLong
+        strategy.entry("L", strategy.long, comment = "A long")
+    if zonePat == -1 and allowShort
+        strategy.entry("S", strategy.short, comment = "B short")
+
+// Stop = distance from the actual fill price (ticks = points / mintick): entry ∓ stopMult × risk.
+// Target = the previous extreme (an absolute price) or, in "Multiple" mode, a distance entry ± tgtMult × risk.
+if not na(riskPts)
+    float stopTicks = stopMult * riskPts / syminfo.mintick
+    if usePrevExt and not na(targetPx)
+        strategy.exit("XL", "L", limit = targetPx, loss = stopTicks, comment_profit = "TP", comment_loss = "SL")
+        strategy.exit("XS", "S", limit = targetPx, loss = stopTicks, comment_profit = "TP", comment_loss = "SL")
+    else
+        float tgtTicks = tgtMult * riskPts / syminfo.mintick
+        strategy.exit("XL", "L", profit = tgtTicks, loss = stopTicks, comment_profit = "TP", comment_loss = "SL")
+        strategy.exit("XS", "S", profit = tgtTicks, loss = stopTicks, comment_profit = "TP", comment_loss = "SL")
+
+// Hard exit: the bar after this one opens at/after the cut-off, so close now and fill at that open.
+if useHard and strategy.position_size != 0 and nextOpenMin >= hardMin
+    strategy.close_all(comment = "HARD")

@@ -1,0 +1,18 @@
+{
+  "strategies": {
+    "SB_Bhanusali": {
+      "enabled": true,
+      "title": "SB Bhanusali",
+      "summary": "Wait for an HTF Pattern A / B candle, then take the first LTF candle that passes all five conditions (C1 to C5). Pattern A is a long, Pattern B a short.",
+      "signals": "htf_ltf_chain",
+      "trade": {
+        "stop_multiple": 1,
+        "target_mode": "previous_extreme",
+        "target_multiple": 2,
+        "round_trip_cost_points": 0,
+        "no_entry_from": "15:10",
+        "hard_exit_at": "15:19"
+      }
+    }
+  }
+}

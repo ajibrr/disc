@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 const INPUT_DIR = path.join(__dirname, '..', 'input');
-const OUT_FILE = path.join(__dirname, 'data.js');
+const OUT_FILE = path.join(__dirname, '..', 'web', 'generated', 'data.js');
 
 /** Split a flat 1-second tick series into contiguous segments (no gaps). */
 function segmentize(rows, priceKey) {
@@ -43,12 +43,21 @@ function segmentize(rows, priceKey) {
   return { segments, gaps };
 }
 
+const { extractFlow } = require('../src/oi-flow.js');   // shared with the back-test runner (scripts/run-backtest.js)
+
 const instruments = {};
 let fileCount = 0;
 
 for (const name of fs.readdirSync(INPUT_DIR)) {
   if (!name.endsWith('.json')) continue;
-  const raw = JSON.parse(fs.readFileSync(path.join(INPUT_DIR, name), 'utf8'));
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(path.join(INPUT_DIR, name), 'utf8'));
+  } catch (e) {
+    // e.g. a download cut off part-way: say so and carry on with the other files instead of stopping the whole build
+    console.warn(`skip ${name}: not valid JSON (${String(e.message).slice(0, 80)})`);
+    continue;
+  }
 
   const symbol = String(raw.asset || '').toUpperCase();
   if (!symbol || typeof raw !== 'object') {
@@ -94,6 +103,9 @@ for (const name of fs.readdirSync(INPUT_DIR)) {
     const firstTs = String(dayRows[0].timestamp || '');
     const lastTs = String(dayRows[dayRows.length - 1].timestamp || '');
 
+    if (instruments[symbol].dates[date]) {
+      console.warn(`warning: ${symbol} ${date} is also in an earlier input file — ${name} replaces it (last file wins)`);
+    }
     instruments[symbol].dates[date] = {
       date,
       sessionStart,
@@ -103,6 +115,7 @@ for (const name of fs.readdirSync(INPUT_DIR)) {
       firstTick: firstTs.slice(11) || '',
       lastTick: lastTs.slice(11) || '',
       segments,
+      flow: extractFlow(raw.flow, date),
     };
 
     fileCount++;

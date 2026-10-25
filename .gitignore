@@ -1,0 +1,7 @@
+.DS_Store
+node_modules/
+*.log.tmp
+# market data stays local: the compact bundle built from input/ and any archive of the raw files
+web/generated/data.js
+input/*.zip
+*.zip

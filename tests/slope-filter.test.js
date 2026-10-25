@@ -1,5 +1,5 @@
 /**
- * slope-filter.test.js — no framework; run with:  node charts/tests/slope-filter.test.js
+ * slope-filter.test.js — no framework; run with:  node tests/slope-filter.test.js
  *
  * Covers plan tests T13–T28 (htf_sma.md §9): the ATR-normalized SMA slope filter,
  * its three-mode configuration contract (off / active / fail-closed error), and the
@@ -11,13 +11,13 @@
  * red/green stepping candles at indices 13/14 decide the base pattern.
  *
  * Like the baseline suite, T23/T27 EXTRACT the real buildCandles() out of
- * charts/index.html so wiring and bucketing can never silently drift from the app.
+ * web/index.html so wiring and bucketing can never silently drift from the app.
  */
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const TC = require('../confirmation.js');
+const TC = require('../src/confirmation.js');
 
 let pass = 0, fail = 0;
 function ok(cond, name) {
@@ -201,7 +201,7 @@ console.log('T17 — neutral slopes are rejected when enabled');
 /* ------------------------------------------------------------------ */
 console.log('T18 — changing minimum_slope in config/htf.json changes evaluation');
 {
-  const cfgPath = path.join(__dirname, '..', '..', 'config', 'htf.json');
+  const cfgPath = path.join(__dirname, '..', 'config', 'htf.json');
   const realCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   const n1 = TC.normalizeFilter(realCfg);
   ok(n1.mode === 'active', 'committed config normalizes to active (got ' + n1.mode + ')');
@@ -382,7 +382,7 @@ console.log('T23 — slope uses the HTF series passed to evaluate, not LTF');
      ' vs after ' + after.toFixed(4) + ')');
 
   // (b) wiring: index.html must feed HTF candles and forward the filter
-  const src = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   ok(/getStates\(htfPanel\.candles,\s*htfSec,\s*sessionEndTick,\s*SLOPE_FILTER\)/.test(src),
      'applyConfirmation calls getStates with htfPanel.candles (HTF) + SLOPE_FILTER');
   ok(!/getStates\(ltfPanel\.candles/.test(src), 'getStates is never called with LTF candles');
@@ -456,14 +456,14 @@ console.log('T25 — mode off is byte-identical; baseline suite runs separately'
   eq(jstr(explicitOff), jstr(none), 'explicit mode-off == absent filter option');
   const offKey = Array.from(none.values()).find(v => v.state === TC.STATE.UNAVAILABLE);
   ok(offKey && offKey.reason === 'insufficient-history', 'Unavailable reason unchanged when off');
-  console.log('  (baseline gate runs separately: node charts/tests/confirmation.test.js → expect 259/0)');
+  console.log('  (baseline gate runs separately: node tests/confirmation.test.js → expect 259/0)');
 }
 
 /* ------------------------------------------------------------------ */
 console.log('T26 — browser checklist (manual, run after index.html wiring)');
 {
   // Structural preconditions the Node side can assert:
-  const src = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   ok(/HTF: Config error/.test(src), 'badge config-error text present in index.html');
   ok(/slopeChip|slope/.test(src) && /drawConfirmLegend/.test(src), 'readout wiring present in index.html');
   console.log('  manual: (1) config enabled:false → UI byte-identical to pre-change');
@@ -476,14 +476,14 @@ console.log('T26 — browser checklist (manual, run after index.html wiring)');
 /* ------------------------------------------------------------------ */
 console.log('T27 + T28 — real data: monotonicity, counts, warm-up (NIFTY/SENSEX)');
 {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const m = src.match(/function buildCandles\(ticks, tf\) \{[\s\S]*?\n\}/);
-  ok(!!m, 'buildCandles() extracted from charts/index.html');
+  ok(!!m, 'buildCandles() extracted from web/index.html');
   if (!m) { console.error('  cannot continue without the real buildCandles'); process.exit(1); }
   // eslint-disable-next-line no-new-func
   const buildCandles = new Function('return (' + m[0] + ')')();
 
-  const realCfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'config', 'htf.json'), 'utf8'));
+  const realCfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'htf.json'), 'utf8'));
   const norm = TC.normalizeFilter(realCfg);
   ok(norm.mode === 'active', 'real config active for real-data runs');
   const min = norm.filter.minSlope;
@@ -496,7 +496,8 @@ console.log('T27 + T28 — real data: monotonicity, counts, warm-up (NIFTY/SENSE
 
   for (const [file, key] of [['NIFTY_2026-10-23_DASHBOARD.json', 'nifty_seconds'],
                              ['SENSEX_2026-10-23_DASHBOARD.json', 'sensex_seconds']]) {
-    const d = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'input', file), 'utf8'));
+    if (!fs.existsSync(path.join(__dirname, '..', 'input', file))) { console.log('  note: input/' + file + ' is not present \u2014 skipped'); continue; }
+    const d = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'input', file), 'utf8'));
     const pk = d.asset.toLowerCase();
     const t = { times: d[key].map(r => r.timestamp_epoch), prices: d[key].map(r => r[pk]) };
     const end = t.times[t.times.length - 1];
