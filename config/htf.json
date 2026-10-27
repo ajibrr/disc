@@ -16,5 +16,9 @@
   "oi_change_filter": {
     "enabled": false,
     "minimum_difference": 0
+  },
+  "oi_change_filter_inverse": {
+    "enabled": true,
+    "minimum_difference": 0
   }
 }

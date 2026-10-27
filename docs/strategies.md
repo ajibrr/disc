@@ -8,7 +8,7 @@ All strategies live in one file, [config/strategies.json](../config/strategies.j
   "title": "SB Bhanusali",
   "summary": "Wait for an HTF Pattern A / B candle, then take the first LTF candle that passes all five conditions (C1 to C5). Pattern A is a long, Pattern B a short.",
   "signals": "htf_ltf_chain",
-  "trade": { "stop_multiple": 1, "target_mode": "previous_extreme", "target_multiple": 2, "round_trip_cost_points": 0, "no_entry_from": "15:10", "hard_exit_at": "15:19" }
+  "trade": { "stop_multiple": 1, "target_multiple": 2, "round_trip_cost_points": 0, "no_entry_from": "15:10", "hard_exit_at": "15:19" }
 }
 ```
 
@@ -18,7 +18,7 @@ All strategies live in one file, [config/strategies.json](../config/strategies.j
 | `conditions` | The strategy's own entry rules (the shape depends on its generator). SB_Bhanusali has none here: its conditions live in `config/htf.json` and `config/ltf.json`. |
 | `title`, `summary` | Names and one-line description shown on the page (the summary is the tooltip). |
 | `signals` | Which signal generator it uses (a key in `src/strategies.js`). A name with no generator means "rules not defined yet" and the strategy cannot be switched on. |
-| `trade` | Stop, target, cost and the session clock rules — see [strategy.md](strategy.md) §5–6. `target_mode` is `previous_extreme` (target = the signal's back high / low) or `multiple` (target = `target_multiple` × the E distance). |
+| `trade` | Stop, target, cost and the session clock rules — see [strategy.md](strategy.md) §5–6. The target is always entry ± `target_multiple` × the E distance. |
 
 ## The strategies today
 
@@ -35,7 +35,7 @@ node scripts/build-config.js                              # after editing config
 node scripts/run-backtest.js                              # every strategy that is switched on
 node scripts/run-backtest.js --strategy SB_Bhanusali      # one strategy
 node scripts/run-backtest.js --strategy all               # every strategy that can run, on or off
-node scripts/run-backtest.js --set strategy.target_mode=multiple --set strategy.target_multiple=3   # what-if on the trade rules of the selected strategies
+node scripts/run-backtest.js --set strategy.target_multiple=3   # what-if on the trade rules of the selected strategies
 ```
 
 On the page, the **Strategy** drop-down in the toolbar chooses which strategy's trades are simulated and drawn (entry squares, TP / SL circles, the badge). Strategies that are off or have no rules are listed but greyed out. The C1–C5 arrows do not depend on the choice.

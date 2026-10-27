@@ -177,19 +177,29 @@
   }
 
   /**
-   * Option-chain OI-change filter configuration (config/htf.json -> oi_change_filter) — the same three-mode contract as the
-   * other two gates, reading ONLY its own section.
+   * Option-chain OI-change gate configuration — shared by the two direction sections of
+   * config/htf.json: `oi_change_filter` (standard) and `oi_change_filter_inverse` (swapped).
+   * Same three-mode contract as the other gates (off / active / error), reading ONLY its
+   * own section; all problems are prefixed with the section name.
    *
-   *   minimum_difference  how far the PE open-interest change must be ABOVE (Pattern A) or BELOW (Pattern B) the CE one,
-   *                       in the file's own units (>= 0, default 0)
-   *   Pattern A passes when  PE change - CE change  >  minimum_difference      (strict)
-   *   Pattern B passes when  CE change - PE change  >  minimum_difference      (strict)
+   *   minimum_difference  required margin between the two OI changes, in the file's own
+   *                       units (>= 0, default 0)
+   *
+   *   standard  Pattern A passes when  PE change - CE change  >  minimum_difference  (strict)
+   *             Pattern B passes when  CE change - PE change  >  minimum_difference  (strict)
+   *   inverse   Pattern A passes when  CE change - PE change  >  minimum_difference  (strict)
+   *             Pattern B passes when  PE change - CE change  >  minimum_difference  (strict)
+   *
+   * The two sections are contradictory: with minimum_difference >= 0 and strict `>`, no
+   * candle can satisfy both directions at once, so enabling both is reported as a
+   * configuration error (fail closed with a visible problem) instead of a gate that
+   * silently never matches.
    *
    * "Change" is the CE / PE open-interest change of the candle being judged (candle -1): the file's change of its minute for a
    * 1m candle, the sum of the minutes inside it for a longer one (src/oi-flow.js). The per-candle values travel on
    * `normalized.perCandle` (set by the page / runner for the session on screen); without them the gate fails closed.
    */
-  function normalizeOiFilter(raw) {
+  function normalizeOiSection(raw, key, sibling) {
     if (raw == null) {
       return { mode: 'error', filter: null,
                problems: ['config not generated — run node scripts/build-config.js'] };
@@ -197,23 +207,39 @@
     if (typeof raw !== 'object') {
       return { mode: 'error', filter: null, problems: ['config must be a JSON object'] };
     }
-    if (!Object.prototype.hasOwnProperty.call(raw, 'oi_change_filter')) {
+    if (!Object.prototype.hasOwnProperty.call(raw, key)) {
       return { mode: 'off', filter: null, problems: [] };   // deliberately absent
     }
-    var sec = raw.oi_change_filter;
+    var sec = raw[key];
     if (sec == null || typeof sec !== 'object' || Array.isArray(sec)) {
-      return { mode: 'error', filter: null, problems: ['oi_change_filter must be an object'] };
+      return { mode: 'error', filter: null, problems: [key + ' must be an object'] };
     }
     if (sec.enabled === false) return { mode: 'off', filter: null, problems: [] };
 
     var problems = [];
-    if (sec.enabled !== true) problems.push('oi_change_filter: enabled must be a boolean (true or false)');
+    if (sec.enabled !== true) problems.push(key + ': enabled must be a boolean (true or false)');
     var md = sec.minimum_difference === undefined ? 0 : sec.minimum_difference;
     if (typeof md !== 'number' || !Number.isFinite(md) || md < 0) {
-      problems.push('oi_change_filter: minimum_difference must be a finite number >= 0');
+      problems.push(key + ': minimum_difference must be a finite number >= 0');
+    }
+    var sib = raw[sibling];
+    if (sec.enabled === true && sib != null && typeof sib === 'object' && !Array.isArray(sib) &&
+        sib.enabled === true) {
+      problems.push(key + ': enable only one OI gate — ' + key + ' and ' + sibling +
+                    ' contradict each other (no candle can pass both)');
     }
     if (problems.length) return { mode: 'error', filter: null, problems: problems };
     return { mode: 'active', filter: { minDiff: md }, problems: [] };
+  }
+
+  /** Standard-direction OI gate (config/htf.json -> oi_change_filter). See normalizeOiSection. */
+  function normalizeOiFilter(raw) {
+    return normalizeOiSection(raw, 'oi_change_filter', 'oi_change_filter_inverse');
+  }
+
+  /** Swapped-direction twin (config/htf.json -> oi_change_filter_inverse). See normalizeOiSection. */
+  function normalizeOiFilterInverse(raw) {
+    return normalizeOiSection(raw, 'oi_change_filter_inverse', 'oi_change_filter');
   }
 
   /** Simple moving average of closes; null until `period` finite values exist. */
@@ -350,10 +376,10 @@
    *        Live cut-off. A candle whose last covered tick is past this is not yet
    *        complete and is never considered — this is what prevents look-ahead.
    * @param {Object} [opts.filter] normalizeFilter() result controlling the ATR-
-   *        normalized SMA slope gate. It may carry an independent `rsi` member —
-   *        the normalizeSmaRsiFilter() result gating on SMA(period) of RSI(14)
-   *        (Part II). Absent sections => mode 'off': original behavior, and
-   *        nothing extra is computed.
+   *        normalized SMA slope gate. It may carry independent `rsi`, `oi` and
+   *        `oiInv` members — normalizeSmaRsiFilter(), normalizeOiFilter() and
+   *        normalizeOiFilterInverse() (standard / swapped OI direction). Absent
+   *        sections => mode 'off': original behavior, and nothing extra is computed.
    * @returns {Map<number, Object>} keyed by closeTime (= candle.time + htfSec).
    *
    * Each entry: { state, pattern, conditions, candleTime, closeTime }.
@@ -376,13 +402,19 @@
     var rMode = rNorm && rNorm.mode ? rNorm.mode : 'off';
     var oNorm = norm && norm.oi ? norm.oi : null;
     var oMode = oNorm && oNorm.mode ? oNorm.mode : 'off';
-    var anyError = mode === 'error' || rMode === 'error' || oMode === 'error';
+    var ioNorm = norm && norm.oiInv ? norm.oiInv : null;      // the swapped-direction twin section
+    var ioMode = ioNorm && ioNorm.mode ? ioNorm.mode : 'off';
+    var anyError = mode === 'error' || rMode === 'error' || oMode === 'error' || ioMode === 'error';
     var f = mode === 'active' ? norm.filter : null;
     var rf = rMode === 'active' ? rNorm.filter : null;
     var slopes = mode === 'active' ? slopeSeries(candles, f) : null;
     var rsiSmas = rMode === 'active' ? rsiSmaSeries(candles, rf) : null;
     var of = oMode === 'active' ? oNorm.filter : null;
-    var oiArr = oMode === 'active' && oNorm.perCandle ? oNorm.perCandle : null;   // per-candle { dce, dpe } | null
+    var iof = ioMode === 'active' ? ioNorm.filter : null;
+    var anyOi = oMode === 'active' || ioMode === 'active';
+    // per-candle { dce, dpe } | null — attached to whichever OI section is active (either may carry it)
+    var oiArr = anyOi ? (oMode === 'active' && oNorm.perCandle ? oNorm.perCandle
+                       : (ioMode === 'active' && ioNorm.perCandle ? ioNorm.perCandle : null)) : null;
 
     for (var k = 0; k < candles.length; k++) {
       var c1 = candles[k];
@@ -428,6 +460,7 @@
         if (mode !== 'off') Object.assign(econd, { slope: null, slopeA: null, slopeB: null });
         if (rMode !== 'off') Object.assign(econd, { rsi: null, rsiA: null, rsiB: null });
         if (oMode !== 'off') Object.assign(econd, { oiCe: null, oiPe: null, oiA: null, oiB: null });
+        if (ioMode !== 'off') Object.assign(econd, { oiCe: null, oiPe: null, oiInvA: null, oiInvB: null });
         out.set(closeTime, Object.assign({}, base, {
           state: STATE.NOT_MATCHED,
           pattern: null,
@@ -437,7 +470,7 @@
         continue;
       }
 
-      if (mode === 'active' || rMode === 'active' || oMode === 'active') {
+      if (mode === 'active' || rMode === 'active' || oMode === 'active' || ioMode === 'active') {
         // per-section condition keys in a fixed order (slope first), so output with
         // the rsi section off is byte-identical to Part I (T19/T25/T31 regression)
         var cond = Object.assign({}, r.conditions);
@@ -453,15 +486,21 @@
           cond.rsiA = rv === null ? null : rv < rf.patternAmax;  // strict (approved Q-P1)
           cond.rsiB = rv === null ? null : rv > rf.patternBmin;  // strict
         }
-        if (oMode === 'active') {
-          var oc = oiArr ? oiArr[k] : null;                 // { dce, dpe } | null (no flow for this candle)
+        var oc = anyOi && oiArr ? oiArr[k] : null;          // { dce, dpe } | null (no flow for this candle)
+        if (anyOi) {
           cond.oiCe = oc ? oc.dce : null;
           cond.oiPe = oc ? oc.dpe : null;
+        }
+        if (oMode === 'active') {
           cond.oiA = oc ? (oc.dpe - oc.dce) > of.minDiff : null;   // strict; PE change above CE change
           cond.oiB = oc ? (oc.dce - oc.dpe) > of.minDiff : null;   // strict; CE change above PE change
         }
-        // sequential gates: a pattern survives only its OWN chain (A: slopeA ∧ rsiA ∧ oiA,
-        // B: slopeB ∧ rsiB ∧ oiB), and each link applies only while its section is active.
+        if (ioMode === 'active') {
+          cond.oiInvA = oc ? (oc.dce - oc.dpe) > iof.minDiff : null;   // strict; swapped: CE above PE for A
+          cond.oiInvB = oc ? (oc.dpe - oc.dce) > iof.minDiff : null;   // strict; swapped: PE above CE for B
+        }
+        // sequential gates: a pattern survives only its OWN chain (A: slopeA ∧ rsiA ∧ oiA ∧ oiInvA,
+        // B: slopeB ∧ rsiB ∧ oiB ∧ oiInvB), and each link applies only while its section is active.
         // An unavailable indicator value is not `true`, so it fails closed (Q-P2).
         var basePattern = r.patternA ? 'A' : (r.patternB ? 'B' : null);
         var pat = basePattern;
@@ -471,6 +510,8 @@
         if (pat === 'B' && rMode === 'active' && cond.rsiB !== true) pat = null;
         if (pat === 'A' && oMode === 'active' && cond.oiA !== true) pat = null;
         if (pat === 'B' && oMode === 'active' && cond.oiB !== true) pat = null;
+        if (pat === 'A' && ioMode === 'active' && cond.oiInvA !== true) pat = null;
+        if (pat === 'B' && ioMode === 'active' && cond.oiInvB !== true) pat = null;
         out.set(closeTime, Object.assign({}, base, {
           state: pat ? STATE.MATCHED : STATE.NOT_MATCHED,
           pattern: pat,
@@ -537,5 +578,6 @@
     normalizeFilter: normalizeFilter,
     normalizeSmaRsiFilter: normalizeSmaRsiFilter,
     normalizeOiFilter: normalizeOiFilter,
+    normalizeOiFilterInverse: normalizeOiFilterInverse,
   };
 }));

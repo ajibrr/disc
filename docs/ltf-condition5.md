@@ -10,7 +10,7 @@
 
 ## 1. What it does
 
-Condition 5 filters the candles that already passed **C1 + C2 + C3 + C4**. (The *back high* / *back low* it finds is also the **profit target** of the trade — see [strategy.md](strategy.md) §6.) It asks one question:
+Condition 5 filters the candles that already passed **C1 + C2 + C3 + C4**. (The *back high* / *back low* it finds is a filter only, not the profit target — the target comes from `target_multiple`, see [strategy.md](strategy.md) §6.) It asks one question:
 
 > Is there still **more than twice as much room** between the E candle and the recent high (Pattern A) or recent low
 > (Pattern B) as the size of the E candle's own move?

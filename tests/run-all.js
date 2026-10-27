@@ -5,8 +5,7 @@
  *
  *     node tests/run-all.js          # or: npm test
  *
- * Exit code 1 if any suite reports a failed check or crashes. (oi-flow.test.js currently has 2 known failures that
- * come from the OI input data, see docs/analysis.md section 2.)
+ * Exit code 1 if any suite reports a failed check or crashes.
  */
 const fs = require('fs');
 const path = require('path');

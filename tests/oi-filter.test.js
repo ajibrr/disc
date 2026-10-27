@@ -36,6 +36,11 @@ const run = (cs, norm) => TC.evaluate(cs, { htfSec: H, sessionEndTick: END(cs), 
 const lastState = (m) => Array.from(m.values()).pop();
 const per = (dce, dpe) => [null, null, null, null, { dce, dpe }];            // only candle k = 4 matters
 const ON = { oi_change_filter: { enabled: true } };
+/* swapped-direction twin (config/htf.json -> oi_change_filter_inverse): helpers mirror the standard ones */
+const ONI = { oi_change_filter_inverse: { enabled: true } };
+const oiNormI = (raw, perArr) => { const n = TC.normalizeOiFilterInverse(raw); if (perArr) n.perCandle = perArr; return n; };
+const withOiInv = (norm) => ({ mode: 'off', filter: null, problems: [], oiInv: norm });
+const runI = (cs, norm) => TC.evaluate(cs, { htfSec: H, sessionEndTick: END(cs), filter: withOiInv(norm) });
 
 /* ------------------------------------------------------------------ */
 console.log('\nT107 — config: off / active / error contract');
@@ -142,6 +147,7 @@ console.log('\nT111 — real data: enabling the gate only ever removes matches, 
   const htfRaw = JSON.parse(fs.readFileSync(path.join(root, 'config', 'htf.json'), 'utf8'));
   const base = TC.normalizeFilter(htfRaw); base.rsi = TC.normalizeSmaRsiFilter(htfRaw);
   let sessions = 0, subset = true, correct = true, droppedOk = true, kept = 0, removed = 0, total = 0;
+  let iSubset = true, iCorrect = true, iDroppedOk = true, iKept = 0, iRemoved = 0;   // the inverse direction
   const seen = new Set();
   for (const f of fs.readdirSync(path.join(root, 'input')).filter((x) => /_DASHBOARD\.json$/.test(x))) {
     let d; try { d = JSON.parse(fs.readFileSync(path.join(root, 'input', f), 'utf8')); } catch (e) { continue; }
@@ -162,16 +168,25 @@ console.log('\nT111 — real data: enabling the gate only ever removes matches, 
       const without = TC.evaluate(cs, { htfSec: htf, sessionEndTick: last, filter: base });
       const gated = Object.assign({}, base, { oi: Object.assign(TC.normalizeOiFilter(ON), { perCandle: per2 }) });
       const withG = TC.evaluate(cs, { htfSec: htf, sessionEndTick: last, filter: gated });
+      const gatedInv = Object.assign({}, base, { oiInv: Object.assign(TC.normalizeOiFilterInverse(ONI), { perCandle: per2 }) });
+      const withI = TC.evaluate(cs, { htfSec: htf, sessionEndTick: last, filter: gatedInv });
       without.forEach((s, close) => {
         const g = withG.get(close);
+        const gi = withI.get(close);
         if (s.state === 'Matched') {
           total++;
           const k = cs.findIndex((x) => x.time + htf === close);
           const oc = per2[k];
           const want = oc ? (s.pattern === 'A' ? oc.dpe > oc.dce : oc.dce > oc.dpe) : false;
+          const wantI = oc ? (s.pattern === 'A' ? oc.dce > oc.dpe : oc.dpe > oc.dce) : false;
           if (g.state === 'Matched') { kept++; if (!want || g.pattern !== s.pattern) correct = false; }
           else { removed++; if (want) droppedOk = false; }
-        } else if (g.state === 'Matched') subset = false;     // the gate must never create a match
+          if (gi.state === 'Matched') { iKept++; if (!wantI || gi.pattern !== s.pattern) iCorrect = false; }
+          else { iRemoved++; if (wantI) iDroppedOk = false; }
+        } else {
+          if (g.state === 'Matched') subset = false;          // the gate must never create a match
+          if (gi.state === 'Matched') iSubset = false;
+        }
       });
     }
   }
@@ -180,6 +195,10 @@ console.log('\nT111 — real data: enabling the gate only ever removes matches, 
   ok(correct, 'every kept match has PE change > CE change (A) / CE change > PE change (B) on its own candle');
   ok(droppedOk, 'every match the gate removed genuinely fails the comparison (or has no flow data)');
   ok(total > 0 && kept + removed === total, 'every ungated match was classified (' + total + ' matches: ' + kept + ' kept, ' + removed + ' removed)');
+  ok(iSubset, 'inverse gate: gated matches are still a subset of ungated matches (it never creates a match)');
+  ok(iCorrect, 'inverse gate: every kept match has CE change > PE change (A) / PE change > CE change (B) on its own candle');
+  ok(iDroppedOk, 'inverse gate: every match it removed genuinely fails the swapped comparison (or has no flow data)');
+  ok(iKept + iRemoved === total, 'inverse gate classified every ungated match (' + iKept + ' kept, ' + iRemoved + ' removed)');
 }
 
 /* ------------------------------------------------------------------ */
@@ -187,12 +206,73 @@ console.log('\nT112 — browser wiring (static source assertions; live checks in
 {
   const html = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   ok(/SLOPE_FILTER\.oi = TC\.normalizeOiFilter\(window\.HTF_CONFIG\)/.test(html), 'the oi normalizer is attached to the shared filter object');
+  ok(/SLOPE_FILTER\.oiInv = TC\.normalizeOiFilterInverse\(window\.HTF_CONFIG\)/.test(html), 'the inverse oi normalizer is attached to the shared filter object');
   ok(/TF_\.changePerCandle\(t && t\.meta\.flow, htfCandles, htfSec\)/.test(html) && /perCandle/.test(html), 'getStates attaches the per-candle OI change of the session to the gate');
-  ok(/part\(cfg\.oi\)/.test(html), 'the oi section is part of the evaluation cache key');
-  ok(/grp">oi</.test(html) && /oiChip\(c\.oiA\)/.test(html) && /oiChip\(c\.oiB\)/.test(html), 'the HTF readout shows an oi chip for A and for B');
-  ok(/SLOPE_FILTER\.oi\.mode === 'error'/.test(html), 'an invalid oi section shows the config error');
+  ok(/part\(cfg\.oi\)/.test(html) && /part\(cfg\.oiInv\)/.test(html), 'the oi and inverse-oi sections are both part of the evaluation cache key');
+  ok(/grp">oi/.test(html) && /oiChip\(oiGate\('A'\)\)/.test(html) && /oiChip\(oiGate\('B'\)\)/.test(html), 'the HTF readout shows an oi chip for A and for B (from the active direction)');
+  ok(/SLOPE_FILTER\.oi\.mode === 'error'/.test(html) && /SLOPE_FILTER\.oiInv\.mode === 'error'/.test(html), 'an invalid oi section shows the config error');
   console.log('  manual (done in the preview): oi chip "oi PE +x CE +y ✓/✗" in the HTF readout; Pattern A / B markers only where the gate passes;');
   console.log('  invalid oi_change_filter -> HTF: Config error badge and no matches; LTF bands follow the gated HTF matches.');
+}
+
+/* ------------------------------------------------------------------ */
+console.log('\nT113 — oi_change_filter_inverse: swapped direction, own config contract, mutually exclusive with the standard gate');
+{
+  // config contract mirrors the standard section
+  const a = TC.normalizeOiFilterInverse({ oi_change_filter_inverse: { enabled: true, minimum_difference: 5 } });
+  ok(a.mode === 'active' && a.filter.minDiff === 5, 'valid inverse section -> active with parsed minimum_difference');
+  ok(TC.normalizeOiFilterInverse(ONI).filter.minDiff === 0, 'minimum_difference defaults to 0 when omitted');
+  ok(TC.normalizeOiFilterInverse({}).mode === 'off', 'section absent -> off');
+  ok(TC.normalizeOiFilterInverse({ oi_change_filter_inverse: { enabled: false } }).mode === 'off', 'enabled:false -> off (other fields inert)');
+  ok(TC.normalizeOiFilterInverse(undefined).mode === 'error' && /config not generated/.test(TC.normalizeOiFilterInverse(undefined).problems[0]), 'missing config.js -> error "config not generated"');
+  const badArr = TC.normalizeOiFilterInverse({ oi_change_filter_inverse: [] });
+  ok(badArr.mode === 'error' && badArr.problems[0].indexOf('oi_change_filter_inverse') === 0, 'array section -> error, prefixed with the inverse section name');
+  const badMd = TC.normalizeOiFilterInverse({ oi_change_filter_inverse: { enabled: true, minimum_difference: 'x' } });
+  ok(badMd.mode === 'error' && badMd.problems.some((p) => p.indexOf('oi_change_filter_inverse:') === 0 && p.indexOf('minimum_difference') >= 0), 'invalid minimum_difference -> section-prefixed problem');
+
+  // the rules are swapped: A now needs CE above PE, B needs PE above CE
+  const invA = (perArr) => lastState(runI(PAT_A, oiNormI(ONI, perArr)));
+  ok(invA(per(500, 100)).state === 'Matched' && invA(per(500, 100)).pattern === 'A' && invA(per(500, 100)).conditions.oiInvA === true && invA(per(500, 100)).conditions.oiInvB === false,
+     'inverse: CE +500 > PE +100 -> Pattern A matches (the standard gate would fail it)');
+  ok(invA(per(100, 500)).state === 'Not Matched' && invA(per(100, 500)).conditions.oiInvA === false, 'inverse: PE above CE -> Pattern A no longer matches');
+  ok(invA(per(300, 300)).state === 'Not Matched', 'equal changes still fail (strict)');
+  const bInv = lastState(runI(PAT_B, oiNormI(ONI, per(100, 500))));
+  ok(bInv.state === 'Matched' && bInv.pattern === 'B' && bInv.conditions.oiInvB === true, 'inverse: PE +500 > CE +100 -> Pattern B matches');
+  ok(lastState(runI(PAT_B, oiNormI(ONI, per(500, 100)))).state === 'Not Matched', 'inverse: CE above PE -> Pattern B no longer matches');
+  ok(lastState(runI(PAT_A, oiNormI(ONI, per(-100, -500)))).state === 'Matched' && lastState(runI(PAT_A, oiNormI(ONI, per(-500, -100)))).state === 'Not Matched',
+     'signed comparison: CE -100 is above PE -500 -> inverse A matches; CE -500 below PE -100 -> fails');
+
+  // margin, missing data, off
+  const mdInv = { oi_change_filter_inverse: { enabled: true, minimum_difference: 100 } };
+  ok(lastState(runI(PAT_A, oiNormI(mdInv, per(300, 150)))).state === 'Matched' && lastState(runI(PAT_A, oiNormI(mdInv, per(300, 200)))).state === 'Not Matched',
+     'minimum_difference applies to the swapped comparison (CE - PE = 150 passes, exactly 100 fails)');
+  const miss = lastState(runI(PAT_A, oiNormI(ONI, [null, null, null, null, null])));
+  ok(miss.state === 'Not Matched' && miss.conditions.oiInvA === null && miss.conditions.oiCe === null, 'inverse with no flow -> fails closed, oiInvA and oiCe null');
+  const offI = TC.evaluate(PAT_A, { htfSec: H, sessionEndTick: END(PAT_A), filter: withOiInv(TC.normalizeOiFilterInverse({})) });
+  const noneI = TC.evaluate(PAT_A, { htfSec: H, sessionEndTick: END(PAT_A), filter: null });
+  ok(jstr(Array.from(offI.entries())) === jstr(Array.from(noneI.entries())), 'inverse off -> output identical to no gate (no oiInv keys appear)');
+
+  // mutually exclusive: both directions enabled is a visible config error, not a silent never-match
+  const both = { oi_change_filter: { enabled: true }, oi_change_filter_inverse: { enabled: true } };
+  const n1 = TC.normalizeOiFilter(both), n2 = TC.normalizeOiFilterInverse(both);
+  ok(n1.mode === 'error' && n2.mode === 'error', 'both directions enabled -> BOTH normalizers report error');
+  ok(n1.problems.some((p) => p.indexOf('oi_change_filter:') === 0 && p.indexOf('only one') >= 0) &&
+     n2.problems.some((p) => p.indexOf('oi_change_filter_inverse:') === 0 && p.indexOf('only one') >= 0),
+     'each problem names its own section and says to enable only one');
+  const bothEval = lastState(TC.evaluate(PAT_A, { htfSec: H, sessionEndTick: END(PAT_A),
+    filter: { mode: 'off', filter: null, problems: [], oi: n1, oiInv: n2 } }));
+  ok(bothEval.state === 'Not Matched' && bothEval.reason === 'config-error' && bothEval.conditions.oiInvA === null,
+     'both enabled -> fails closed with reason config-error and null inverse keys');
+
+  // independence: a broken sibling section does not disable this one
+  ok(TC.normalizeOiFilter({ oi_change_filter: { enabled: true }, oi_change_filter_inverse: 'x' }).mode === 'active', 'a broken inverse section does not disable the standard gate');
+  ok(TC.normalizeOiFilterInverse({ sma_slope_filter: 7, sma_rsi_filter: [] }).mode === 'off', 'broken slope / RSI sections do not affect the inverse OI validator');
+
+  // shipped config: section present and validating (off as the file sets it)
+  const shipped = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'htf.json'), 'utf8'));
+  const sh = TC.normalizeOiFilterInverse(shipped);
+  ok(!!shipped.oi_change_filter_inverse && sh.mode === (shipped.oi_change_filter_inverse.enabled === false ? 'off' : 'active'),
+     'shipped config/htf.json has an oi_change_filter_inverse section that validates (' + sh.mode + ' as the file sets it)');
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

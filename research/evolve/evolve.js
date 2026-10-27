@@ -26,7 +26,7 @@ const path = require('path');
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const COST = +opt('cost', 2), SEED = +opt('seed', 1), POP = +opt('pop', 50), GENS = +opt('gens', 20);
-const INPUT = path.resolve(opt('input', path.join(__dirname, '..', '..', 'input')));
+const INPUT = path.resolve(opt('input', require('../../src/paths.js').inputDir));
 const OPEN = 9 * 3600 + 15 * 60, NO_ENTRY_FROM = 15 * 3600, HARD_EXIT = 15 * 3600 + 15 * 60;
 
 function mulberry32(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }

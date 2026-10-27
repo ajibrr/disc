@@ -1,5 +1,7 @@
 # Optimizing the LTF conditions (C1–C6) without overfitting
 
+> **Note:** this study used the previous-high/low target, which has since been removed; the target is now always `target_multiple` × risk, so numbers here will not reproduce.
+>
 > **Status:** study of 25-10-2026 on the 29 recorded NIFTY sessions (LTF 12s / 36s / 60s at the time; the project now runs only 12s and 36s), strategy SB_Bhanusali, stop 1× the E distance, target = previous high / low, no costs.
 > Start config for §2–§6: `config/ltf.json` with **C6 risk range 2–6** (`--base` file); the study itself writes nothing to the config. §7 led to one config change (C6 minimum risk 3).
 > Tool: [research/optimize/optimize.js](../research/optimize/optimize.js). Related: [analysis.md](analysis.md) (what separates winners from losers), [strategy.md](strategy.md).

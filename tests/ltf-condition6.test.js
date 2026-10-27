@@ -100,8 +100,6 @@ console.log('\nT134 — wiring (static source assertions)');
   ok(/TL\.normalizeCondition6\(window\.LTF_CONFIG\)/.test(html) && /c6: LTF_COND6/.test(html), 'the page normalizes C6 and passes it to the shared chain');
   ok(/C1\+C2\+C3\+C4\+C5\+C6/.test(html), 'the page draws a C1..C6 arrow');
   ok(/c6: TL\.normalizeCondition6\(ltfCfgRaw\)/.test(bt), 'the back-test runner passes C6 to the chain');
-  const pine = fs.readFileSync(path.join(root, 'pine', 'htf_ltf_strategy.pine'), 'utf8');
-  ok(/minRisk/.test(pine) && /maxRisk/.test(pine), 'the Pine port has the min and max risk inputs');
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

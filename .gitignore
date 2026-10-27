@@ -5,3 +5,8 @@ node_modules/
 web/generated/data.js
 input/*.zip
 *.zip
+
+trades*.csv
+
+backtest.log
+output/

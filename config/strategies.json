@@ -7,7 +7,6 @@
       "signals": "htf_ltf_chain",
       "trade": {
         "stop_multiple": 1,
-        "target_mode": "previous_extreme",
         "target_multiple": 2,
         "round_trip_cost_points": 0,
         "no_entry_from": "15:10",

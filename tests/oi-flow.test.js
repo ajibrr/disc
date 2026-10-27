@@ -163,7 +163,8 @@ console.log('\nT106 — browser wiring (static source assertions; live checks in
   ok(!/oi-chart/.test(html) && (html.match(/data-role="oi-legend"/g) || []).length === 2, 'no separate OI pane any more: only the readout row (markup + lookup) remains, in the HTF panel');
   ok(/TF_\.changePerCandle\(ticks\.meta\.flow/.test(html), 'the pane is fed by changePerCandle (the change of the minutes inside each candle)');
   ok(/this\.ceSeries = this\.chart\.addLineSeries\(\{\s*priceScaleId: 'left'/.test(html) && /this\.peSeries = this\.chart\.addLineSeries\(\{\s*priceScaleId: 'left'/.test(html), 'CE and PE OI change are two line series of the HTF PRICE chart, on its left price scale');
-  ok(/leftPriceScale: \{ visible: true[^}]*scaleMargins: \{ top: OI_BAND_TOP/.test(html) && /leftPriceScale: \{ visible: true, borderColor: '#2a2e39', minimumWidth: 66 \}/.test(html), 'the lines sit in a band under the candles; the RSI chart carries an identical left scale so the time axes stay aligned');
+  ok(/leftPriceScale: \{ visible: true[^}]*scaleMargins: \{ top: OI_BAND_TOP/.test(html), 'the OI lines sit in a band under the candles on the HTF price chart\'s left scale (the RSI panel, which used to mirror that scale, is gone)');
+  ok(!/rsiChart|rsi-chart/.test(html), 'no RSI panel remains on either chart (neither the HTF nor the LTF markup or code)');
   ok(/drawOiLegend\(/.test(html) && !/mirror\('oi'/.test(html), 'the readout row is wired; no extra crosshair mirroring is needed (same chart as the candles)');
   ok(!/Cum CE|Cum PE|alignToCandles/.test(html), 'the cumulative CE / PE lines are gone');
   console.log('  manual (done in the preview): candles in the upper part of the HTF price chart, red CE OI change and green PE OI change lines in a band under them');

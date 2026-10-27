@@ -9,6 +9,7 @@
  *     node scripts/run-backtest.js --strategy SB_Bhanusali   # one strategy (default: every strategy switched on in config/strategies.json)
  *     node scripts/run-backtest.js --strategy all   # every strategy that can run, switched on or not
  *     node scripts/run-backtest.js --trades         # also list every trade
+ *     node scripts/run-backtest.js --csv [file]     # write every trade to a CSV file (default trades.csv; one file per strategy when several run)
  *     node scripts/run-backtest.js --json           # machine-readable output
  *     node scripts/run-backtest.js --trades --out backtest.log   # also write the report to a log file
  *     node scripts/run-backtest.js --set ltf.condition_5_distance_ratio.distance_multiplier=2 --set strategy.target_multiple=3
@@ -27,7 +28,8 @@ const TT = require('../src/trade-sim.js');
 const TS = require('../src/strategies.js');
 const TFlow = require('../src/oi-flow.js');
 
-const root = path.join(__dirname, '..');
+const PATHS = require('../src/paths.js');
+const root = PATHS.root;
 const args = process.argv.slice(2);
 const flag = (n) => args.includes('--' + n);
 const opt = (n) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : null; };
@@ -39,7 +41,7 @@ const logLines = [];
 if (outFile) {
   const orig = console.log.bind(console);
   console.log = (...a) => { logLines.push(a.join(' ')); orig(...a); };
-  process.on('exit', () => { try { fs.writeFileSync(path.resolve(outFile), logLines.join('\n') + '\n'); } catch (e) { console.error('cannot write ' + outFile + ': ' + e.message); } });
+  process.on('exit', () => { try { fs.writeFileSync(PATHS.outputFile(outFile), logLines.join('\n') + '\n'); } catch (e) { console.error('cannot write ' + outFile + ': ' + e.message); } });
 }
 const ltfList = (opt('ltf') ? opt('ltf').split(',').map(Number) : Object.keys(HTF_OF).map(Number));
 for (const l of ltfList) if (!HTF_OF[l]) { console.error('unknown LTF ' + l + ' (use 12,36)'); process.exit(1); }
@@ -80,10 +82,11 @@ args.forEach((a, i) => {
   overrides.push(m2[1] + '.' + m2[2] + ' = ' + JSON.stringify(v));
 });
 const filter = TC.normalizeFilter(htfCfg); filter.rsi = TC.normalizeSmaRsiFilter(htfCfg); filter.oi = TC.normalizeOiFilter(htfCfg);
+filter.oiInv = TC.normalizeOiFilterInverse(htfCfg);   // swapped-direction OI gate (oi_change_filter_inverse)
 const cfgs = { c1: TL.normalizeCondition1(ltfCfgRaw), c2: TL.normalizeCondition2(ltfCfgRaw), c3: TL.normalizeCondition3(ltfCfgRaw),
                c4: TL.normalizeCondition4(ltfCfgRaw), c5: TL.normalizeCondition5(ltfCfgRaw), c6: TL.normalizeCondition6(ltfCfgRaw) };
 const REG = TS.normalizeRegistry(regRaw);
-for (const [k, v] of Object.entries(Object.assign({ filter, rsi: filter.rsi, oi: filter.oi }, cfgs))) {
+for (const [k, v] of Object.entries(Object.assign({ filter, rsi: filter.rsi, oi: filter.oi, oiInv: filter.oiInv }, cfgs))) {
   if (v.mode === 'error') { console.error('config error (' + k + '): ' + v.problems.join('; ')); process.exit(1); }
 }
 if (REG.mode === 'error') { console.error('config error (strategies): ' + REG.problems.join('; ')); process.exit(1); }
@@ -104,11 +107,12 @@ if (!selected.length) { console.error('no strategy is switched on in config/stra
 const ist = (t) => new Date((t + 19800) * 1000).toISOString().slice(11, 19);
 const day = (t) => new Date((t + 19800) * 1000).toISOString().slice(0, 10);
 
-const files = fs.readdirSync(path.join(root, 'input')).filter((f) => /_DASHBOARD\.json$/.test(f)).sort();
+if (!fs.existsSync(PATHS.inputDir)) { console.error('input folder not found: ' + PATHS.inputDir + ' (set input_dir in config/paths.json)'); process.exit(1); }
+const files = fs.readdirSync(PATHS.inputDir).filter((f) => /_DASHBOARD\.json$/.test(f)).sort();
 const sessions = [];
 for (const f of files) {
   let d;
-  try { d = readJson('input/' + f); } catch (e) { console.error('skipping ' + f + ': ' + e.message.slice(0, 80)); continue; }
+  try { d = JSON.parse(fs.readFileSync(path.join(PATHS.inputDir, f), 'utf8')); } catch (e) { console.error('skipping ' + f + ': ' + e.message.slice(0, 80)); continue; }
   const asset = d.asset, key = asset.toLowerCase();
   const series = d[key + '_seconds'];
   if (!series || !series.length) { console.error('skipping ' + f + ': no second data'); continue; }
@@ -132,9 +136,12 @@ for (const s of sessions) {
     const lc = buildCandles(s.ticks, ltf);
     const htfCandles = buildCandles(s.ticks, htf);
     let sessionFilter = filter;                      // the OI-change gate needs this session's CE / PE change per HTF candle
-    if (filter.oi.mode === 'active') {
+    const anyOi = filter.oi.mode === 'active' || filter.oiInv.mode === 'active';
+    if (anyOi) {
       const per = TFlow.changePerCandle(s.flow, htfCandles, htf).map((a) => (a ? { dce: a.dce, dpe: a.dpe } : null));
-      sessionFilter = Object.assign({}, filter, { oi: Object.assign({}, filter.oi, { perCandle: per }) });
+      sessionFilter = Object.assign({}, filter);
+      if (filter.oi.mode === 'active') sessionFilter.oi = Object.assign({}, filter.oi, { perCandle: per });
+      if (filter.oiInv.mode === 'active') sessionFilter.oiInv = Object.assign({}, filter.oiInv, { perCandle: per });
     }
     const states = TC.evaluate(htfCandles, { htfSec: htf, sessionEndTick: last, filter: sessionFilter });
     const chain = TL.runChain(lc, TL.windowsFromStates(states, htf), cfgs, TC.rsiArray);
@@ -144,7 +151,19 @@ for (const s of sessions) {
     rows.push({ asset: s.asset, date: s.date, ltf, c1: chain.c1.length, signals: signals.length, trades: sim.trades.length,
                 skipped: sim.skipped.length, wins: sum.wins, losses: sum.losses, pnl: sum.totalPnl });
     for (const k of sim.skipped) skippedBy[k.reason] = (skippedBy[k.reason] || 0) + 1;
-    for (const t of sim.trades) allTrades.push(Object.assign({ asset: s.asset, date: s.date, ltf }, t));
+    // the HTF candle whose zone produced each signal: its Wilder RSI 14 and the SMA 14 of that RSI (the value the HTF RSI filter tests)
+    const hRsi = TC.rsiArray(htfCandles.map((c) => c.close), 14);
+    const hRsiMa = TL.smaNullableArray(hRsi, htfCfg.sma_rsi_filter && htfCfg.sma_rsi_filter.period ? htfCfg.sma_rsi_filter.period : 14);
+    for (const t of sim.trades) {
+      const sig = signals.find((x) => x.time === t.signalTime);
+      const closeTime = sig ? sig.windowCloseTime : null;
+      const k = closeTime == null ? -1 : htfCandles.findIndex((c) => c.time === closeTime - htf);
+      const st = closeTime == null ? null : states.get(closeTime);
+      if (k >= 0 && st && st.conditions && typeof st.conditions.rsi === 'number' && Math.abs(st.conditions.rsi - hRsiMa[k]) > 1e-9) {
+        console.error('warning: HTF SMA-of-RSI of ' + s.date + ' ' + ist(closeTime) + ' differs from the filter value — CSV column unreliable');
+      }
+      allTrades.push(Object.assign({ asset: s.asset, date: s.date, ltf, htfClose: closeTime, htfRsi: k >= 0 ? hRsi[k] : null, htfRsiSma: k >= 0 ? hRsiMa[k] : null }, t));
+    }
   }
 }
 
@@ -161,7 +180,7 @@ const sg = (v) => (v === null || v === undefined ? '—' : (v > 0 ? '+' : '') + 
 const pct = (v) => (v === null ? '—' : (v * 100).toFixed(1) + ' %');
 const pad = (v, n) => String(v).padEnd(n), lpad = (v, n) => String(v).padStart(n);
 
-console.log('\n' + (multi ? '══════════ ' : '') + 'Strategy ' + entry.name + ' — back-test — stop ' + strat.cfg.stopMultiple + ' × the E candle distance / target ' + (strat.cfg.targetMode === 'previous_extreme' ? 'the previous high (long) / low (short) of the back window' : strat.cfg.targetMultiple + ' × the E candle distance') + ', entry on the next candle open'
+console.log('\n' + (multi ? '══════════ ' : '') + 'Strategy ' + entry.name + ' — back-test — stop ' + strat.cfg.stopMultiple + ' × the E candle distance / target ' + strat.cfg.targetMultiple + ' × the E candle distance, entry on the next candle open'
   + (strat.cfg.cost ? ', cost ' + strat.cfg.cost + ' pts per trade' : '')
   + (strat.cfg.noEntryLabel ? ', no entry from ' + strat.cfg.noEntryLabel + ' IST' : '') + (strat.cfg.hardExitLabel ? ', hard exit ' + strat.cfg.hardExitLabel + ' IST' : ''));
 if (overrides.length) console.log('Overrides for this run only: ' + overrides.join(', '));
@@ -181,6 +200,20 @@ if (flag('trades')) {
   allTrades.forEach((t) => console.log(pad(t.asset, 11) + pad(t.date, 12) + pad(t.ltf + 's', 5) + pad(t.side, 7) + pad(ist(t.signalTime), 10) + pad(ist(t.entryTime), 10) +
     lpad(f2(t.entryPrice), 11) + lpad(f2(t.risk), 8) + lpad(f2(t.stop), 11) + lpad(f2(t.target), 11) + pad('  ' + ist(t.exitTime), 10) + lpad(f2(t.exitPrice), 11) +
     pad('  ' + t.exitReason, 8) + lpad(sg(t.pnl), 9) + lpad(sg(t.r), 7)));
+}
+
+// --csv [file]: the same trade list as `--trades`, one row per trade, as a CSV file (opens in Excel / Sheets)
+if (flag('csv')) {
+  const next = args[args.indexOf('--csv') + 1];
+  let file = next && !next.startsWith('--') ? next : 'trades.csv';
+  if (multi) file = file.replace(/(\.csv)?$/, '-' + entry.name + '$1');             // several strategies -> one file each
+  const cell = (v) => (/[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v));
+  const rows = ['instrument,date,LTF,side,signal,entry,entry px,risk,stop,target,exit,exit px,why,P&L,R,HTF close,HTF RSI 14,HTF SMA 14 of RSI'];
+  allTrades.forEach((t) => rows.push([t.asset, t.date, t.ltf + 's', t.side, ist(t.signalTime), ist(t.entryTime), f2(t.entryPrice), f2(t.risk), f2(t.stop), f2(t.target),
+    ist(t.exitTime), f2(t.exitPrice), t.exitReason, f2(t.pnl), f2(t.r), t.htfClose == null ? '' : ist(t.htfClose), f2(t.htfRsi), f2(t.htfRsiSma)].map(cell).join(',')));
+  const csvPath = PATHS.outputFile(file);
+  fs.writeFileSync(csvPath, rows.join('\n') + '\n');
+  console.log('\n' + allTrades.length + ' trades written to ' + csvPath);
 }
 
 const block = (title, s) => {

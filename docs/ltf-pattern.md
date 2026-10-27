@@ -39,8 +39,8 @@ Needs **HTF Confirmation** on (it supplies the zones) and the **LTF Conditions**
 | **C6 — risk range** *(on top of C1–C5)* | **3.5 ≤** e candle distance **< 8** points | **3.5 ≤** e candle distance **< 8** points (same range) |
 | **Arrow when all conditions pass** | `C1+C2+C3+C4+C5+C6 A` — pink ⬆ **below** the candle (`C1+C2+C3+C4+C5 A` in muted purple = passed C5 but the risk was outside 3.5–8 points) | `C1+C2+C3+C4+C5+C6 B` — pink ⬇ **above** the candle |
 
-**Spread %** = (SMA 9 − SMA 44) ÷ SMA 44 × 100 — the same number as the histogram under the RSI chart.
-**SMA-of-RSI** = SMA 14 of RSI 14 — the orange line on the LTF RSI chart.
+**Spread %** = (SMA 9 − SMA 44) ÷ SMA 44 × 100 (calculated; the histogram that used to show it under the LTF chart was removed).
+**SMA-of-RSI** = SMA 14 of RSI 14 (calculated; the RSI panel is no longer drawn on the page).
 **E candle** = the candle carrying the C1–C4 arrow; the distances are defined per pattern in section 7 (details in [ltf-condition5.md](ltf-condition5.md)).
 
 ---
@@ -154,7 +154,7 @@ A candle that crosses RSI 50 gets **exactly one** arrow — the highest level it
 Hover a zone on the LTF chart: the readout row shows a `C1`, `C2`, `C3`, `C4` and `C5` chip with the crossing times,
 RSI / SMA / spread values, or `none`.
 
-Other LTF extras: a **histogram pane** of the spread % under the RSI chart (green above 0, red below), and the
+Other LTF extra: the
 **LTF Conditions** toolbar toggle that clears all the arrows (the zones stay).
 
 ---
@@ -224,5 +224,5 @@ node tests/ltf-condition2.test.js   # C2
 node tests/ltf-condition3.test.js   # C3
 node tests/ltf-condition4.test.js   # C4
 node tests/ltf-condition5.test.js   # C5 (Patterns A and B)
-node tests/ltf-spread.test.js       # spread histogram / readout
+node tests/ltf-spread.test.js       # the spread calculation (C3)
 ```

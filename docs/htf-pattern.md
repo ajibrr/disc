@@ -95,7 +95,7 @@ Settings in `config/htf.json` → `sma_slope_filter` (current values):
 ## 5. Layer 3 — SMA-of-RSI filter
 
 Checks that momentum is not already stretched in the pattern's direction. It uses the **SMA 14 of
-Wilder RSI 14** — the orange line on the HTF RSI chart.
+Wilder RSI 14** (calculated; the HTF page no longer draws the RSI panel).
 
 | | Pattern A | Pattern B |
 |---|---|---|

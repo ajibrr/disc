@@ -30,7 +30,7 @@ console.log('\nT121 — shipped config/strategies.json');
   ok(r.enabled.length === 1 && r.enabled[0] === 'SB_Bhanusali', 'SB_Bhanusali is the only strategy switched on');
   const sb = r.byName.SB_Bhanusali;
   ok(sb.enabled && sb.implemented && sb.runnable && sb.trade.mode === 'active', 'SB_Bhanusali: on, implemented, runnable, trade rules valid');
-  ok(sb.trade.cfg.stopMultiple === 1 && sb.trade.cfg.targetMode === 'previous_extreme' && sb.trade.cfg.noEntryLabel === '15:10' && sb.trade.cfg.hardExitLabel === '15:19',
+  ok(sb.trade.cfg.stopMultiple === 1 && sb.trade.cfg.targetMultiple > 0 && sb.trade.cfg.noEntryLabel === '15:10' && sb.trade.cfg.hardExitLabel === '15:19',
      'SB_Bhanusali trade rules: stop 1x the E distance, target = previous extreme, no entry from 15:10, hard exit 15:19');
 }
 

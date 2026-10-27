@@ -12,10 +12,8 @@
  *              for it — otherwise the trade would use information from the future.
  *   Risk     = the E candle distance of the signal (points).
  *   Stop     = entry -/+ stop_multiple   x risk   (long / short)      (default 1)
- *   Target   = target_mode "multiple" (default): entry +/- target_multiple x risk   (long / short)      (default 2)
- *              target_mode "previous_extreme": the signal's back high (Pattern A / long) or back low (Pattern B / short) —
- *              the highest high / lowest low of the `back_candles` candles before the E candle (Condition 5's own window).
- *              A signal whose target is not beyond the entry price (price already past it) is skipped.
+ *   Target   = entry +/- target_multiple x risk   (long / short) — taken ONLY from config/strategies.json. (Condition 5's back high /
+ *              back low is a FILTER on the signal, never a target.)
  *   Exit     = whichever of stop / target the second-by-second ticks reach FIRST (so a stop and a target inside
  *              one candle are resolved by replaying the ticks, not guessed); otherwise the last tick of the session.
  *   Fills    = exactly at the stop / target price (no slippage); an optional fixed round-trip cost in points.
@@ -45,10 +43,11 @@
     var pos = function (v) { return typeof v === 'number' && Number.isFinite(v) && v > 0; };
     if (sec.enabled !== true) problems.push('enabled must be a boolean (true or false)');
     if (!pos(sec.stop_multiple)) problems.push('stop_multiple must be a finite number > 0');
-    var targetMode = sec.target_mode === undefined ? 'multiple' : sec.target_mode;     // absent = the original multiple-of-risk target
-    if (targetMode !== 'multiple' && targetMode !== 'previous_extreme') problems.push('target_mode must be "multiple" or "previous_extreme"');
-    // target_multiple is needed for the "multiple" target; with "previous_extreme" it is unused but, if present, must still be valid
-    if ((targetMode === 'multiple' || sec.target_multiple !== undefined) && !pos(sec.target_multiple)) problems.push('target_multiple must be a finite number > 0');
+    // the target is always entry +/- target_multiple x risk; the old "previous_extreme" target mode was removed (Condition 5's previous high / low is a filter only)
+    if (sec.target_mode !== undefined && sec.target_mode !== 'multiple') {
+      problems.push('target_mode "' + sec.target_mode + '" is no longer supported: the target is always entry +/- target_multiple x risk — delete the target_mode line');
+    }
+    if (!pos(sec.target_multiple)) problems.push('target_multiple must be a finite number > 0');
     if (!(typeof sec.round_trip_cost_points === 'number' && Number.isFinite(sec.round_trip_cost_points) &&
           sec.round_trip_cost_points >= 0)) {
       problems.push('round_trip_cost_points must be a finite number >= 0');
@@ -65,8 +64,7 @@
     }
     return { mode: 'active', cfg: {
       stopMultiple: sec.stop_multiple,
-      targetMultiple: sec.target_multiple,   // undefined when target_mode is previous_extreme and none is given
-      targetMode: targetMode,
+      targetMultiple: sec.target_multiple,
       cost: sec.round_trip_cost_points,
       noEntrySec: noEntrySec,        // seconds since midnight IST, or null = no limit
       hardExitSec: hardExitSec,
@@ -133,15 +131,7 @@
       var long = sig.pattern === 'A';
       var entry = next.open;
       var stop = long ? entry - cfg.stopMultiple * risk : entry + cfg.stopMultiple * risk;
-      var target;
-      if (cfg.targetMode === 'previous_extreme') {          // target = the back high (long) / back low (short) of the signal
-        var ext = long ? sig.backHigh : sig.backLow;
-        if (typeof ext !== 'number' || !Number.isFinite(ext)) { skipped.push({ time: sig.time, pattern: sig.pattern, reason: 'no-target' }); return; }
-        if (long ? ext <= entry : ext >= entry) { skipped.push({ time: sig.time, pattern: sig.pattern, reason: 'target-behind-entry' }); return; }
-        target = ext;
-      } else {
-        target = long ? entry + cfg.targetMultiple * risk : entry - cfg.targetMultiple * risk;
-      }
+      var target = long ? entry + cfg.targetMultiple * risk : entry - cfg.targetMultiple * risk;
 
       // replay: the opening tick of the entry candle IS the entry, so look at the ticks after it
       var k0 = lowerBound(times, next.time);

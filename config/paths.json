@@ -1,0 +1,6 @@
+{
+  "_help": "Where the tools read and write. A relative path is resolved against the project folder, an absolute path (e.g. /data/disc/input on a VPS) is used as is. Set the env var DISC_PATHS_FILE to use a different paths file, or DISC_INPUT_DIR / DISC_OUTPUT_DIR / DISC_RESEARCH_LOG_DIR to override a single folder.",
+  "input_dir": "input",
+  "output_dir": "output",
+  "research_log_dir": "research/optimize/logs"
+}

@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const INPUT_DIR = path.join(__dirname, '..', 'input');
+const INPUT_DIR = require('../src/paths.js').inputDir;
 const OUT_FILE = path.join(__dirname, '..', 'web', 'generated', 'data.js');
 
 /** Split a flat 1-second tick series into contiguous segments (no gaps). */

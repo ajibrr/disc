@@ -9,7 +9,7 @@ no server, no build step, no network access required. On top of the charts sits 
 Built on [TradingView Lightweight Charts™ v4.2.0](https://github.com/tradingview/lightweight-charts)
 (Apache 2.0), vendored locally.
 
-> The current `input/` folder holds **NIFTY** sessions only (SENSEX files are supported by the loader but none are present).
+> The current `input/` folder holds **NIFTY** and **SENSEX** sessions (both are supported by the loader).
 > The simulation replays recorded sessions — there is no live trading, and its results are **not** evidence of profitability.
 
 ---
@@ -33,7 +33,6 @@ README.md  package.json  .gitignore
 ├── config/         the settings you edit: htf.json · ltf.json · strategies.json
 ├── input/          raw recorded sessions (*_DASHBOARD.json)
 ├── docs/           all documentation (map below); docs/design/ = historical plans
-├── pine/           TradingView Pine Script port of the strategy
 ├── research/       parameter studies, not part of the strategy: optimize/ (sweeps, cross-validation, logs) · evolve/
 └── screenshots/
 ```
@@ -50,7 +49,7 @@ npm test                         # every test suite, one line each
 open web/index.html              # the charts (or just double-click the file)
 ```
 
-> **Data is not in the repository.** `input/*_DASHBOARD.json` (recorded NIFTY sessions) and the bundle built from them, `web/generated/data.js`, are kept out of git (market data). Put your own `*_DASHBOARD.json` files in `input/` and run `npm run build` before opening the page or running the back-test.
+> **Market data stays local.** The bundle built from `input/`, `web/generated/data.js`, is gitignored; of the raw `input/*_DASHBOARD.json` recordings only a handful are tracked in git — treat the rest as local files. Put your own `*_DASHBOARD.json` files in `input/` and run `npm run build` before opening the page or running the back-test.
 
 (`npm` is only a shortcut — the project has no dependencies; every command also runs as plain `node …`, for example `node scripts/run-backtest.js --strategy SB_Bhanusali`, `node tests/<name>.test.js`.)
 
@@ -100,6 +99,8 @@ open web/index.html              # the charts (or just double-click the file)
 | `src/ltf-conditions.js` | LTF conditions C1–C5, the shared chain (`TL.runChain`) and their config validation |
 | `src/oi-flow.js` | Option-chain flow helpers: CE / PE OI change per HTF candle, number formatting |
 | `src/trendlines.js` | Trend-line helpers (time / price anchors, hit-testing, storage) |
+| `src/replay.js` | Bar-replay helpers: the session cut to the ticks up to a replay time |
+| `src/trade-view.js` | How a trade is drawn on the LTF chart: entry / exit candle columns, the position box, level lines, emoji labels (pure geometry) |
 | `src/strategies.js` | Strategy registry: validates `config/strategies.json`, says which strategies exist / are on / can run, and produces each one's signals |
 | `src/trade-sim.js` | Strategy simulation and statistics (shared by every strategy) |
 | `scripts/run-backtest.js` | Command-line back-test over every recorded session |
@@ -113,11 +114,13 @@ open web/index.html              # the charts (or just double-click the file)
 | `slope-filter.test.js` (T13–T28) · `sma-rsi-filter.test.js` (T29–T40) · `oi-filter.test.js` (T107–T112) | the three HTF filters |
 | `oi-flow.test.js` (T103–T106) | HTF CE / PE OI-change lines |
 | `ltf-condition1.test.js` (T41–T52) · `ltf-condition2.test.js` (T53–T60) · `ltf-condition3.test.js` (T65–T73) · `ltf-condition4.test.js` (T74–T81) · `ltf-condition5.test.js` (T82–T90) · `ltf-condition6.test.js` (T130–T134) | LTF conditions |
-| `ltf-spread.test.js` (T61–T64) | LTF SMA-spread view |
+| `ltf-spread.test.js` (T61–T64) | the SMA-spread calculation (used by C3) |
 | `trade-sim.test.js` (T91–T102) | shared chain and strategy simulation |
 | `run-all.js` | runs every suite and prints one line each |
 | `strategies.test.js` (T121–T124) | strategy registry, validation, SB_Bhanusali signals, selector and back-test wiring |
 | `trendlines.test.js` (T113–T120) | trend-line helpers and page wiring |
+| `trade-view.test.js` (T150–T154) | trade drawing: geometry of the columns, the position box and the level lines; labels; page wiring |
+| `replay.test.js` (T140–T144) | bar replay: truncation, no look-ahead (candles and signals), page wiring |
 
 **Other**
 
@@ -126,7 +129,6 @@ open web/index.html              # the charts (or just double-click the file)
 | `docs/` | All documentation — see the map above |
 | `research/optimize/optimize.js` | Parameter study for the LTF conditions C1–C6: one-parameter sweeps and a train / test greedy search, reported for the older and newer half of the sessions ([docs/optimization.md](docs/optimization.md)). Writes nothing to the config |
 | `research/evolve/evolve.js` | **Experimental**, separate from the strategy: a genetic strategy search with walk-forward validation (options such as `--cost`, `--seed`, `--pop`, `--gens` are listed in its header comment) |
-| `pine/htf_ltf_strategy.pine` | TradingView **Pine Script v6** port of the strategy (HTF Pattern A/B, LTF C1–C5, entry, stop, target, hard exit). Not compiled or verified yet — the header lists the differences from the JS back-test |
 | `screenshots/` | Reference screenshots (crosshair alignment) |
 
 ---
@@ -163,8 +165,7 @@ produced the bundle. `config/htf.json` carries three independent sections — `s
 `sma_rsi_filter` and `oi_change_filter` (all documented in §6) — each validated separately,
 neither affecting the others. `config/ltf.json` and `config/strategies.json` work the same way.
 
-**Current data:** 29 distinct NIFTY sessions, 2026-09-09 → 2026-10-23, from 31 files. Two files repeat a date
-(`NIFTY_2026-09-11` and `NIFTY_2026-09-14` are identical copies; 21-10 has two files) — the later file replaces the earlier one. A typical session is 09:15:00 → 15:30:00 IST with a few
+**Current data:** 29 distinct NIFTY sessions, 2026-09-11 → 2026-10-27, plus 3 SENSEX sessions (2026-10-21 → 2026-10-23), from 32 files with no duplicate dates. A typical session is 09:15:00 → 15:30:00 IST with a few
 hundred feed gaps of up to ~11 s. Each file also carries a `flow` series (CE / PE open-interest columns) — see [docs/analysis.md](docs/analysis.md) §2 for a caveat on how those columns behave.
 
 - Ticks are 1-second prices; a session spans ~22,500 seconds.
@@ -204,7 +205,7 @@ Toolbar controls:
 | **HTF Confirmation** | Toggles the candle-pattern visualization (§6) |
 | **badge** | `HTF: Matched A · 10:35` — state of the latest eligible completed HTF candle |
 | **Meta bar** | Session times, tick count, feed gaps, expiry |
-| **⤢ (per panel)** | Fits the whole session into view on both the price and RSI charts |
+| **⤢ (per panel)** | Fits the whole session into view on the price chart |
 
 ---
 
@@ -241,19 +242,10 @@ HTF SMA 9 uses HTF candles, the LTF SMA 9 uses LTF candles, and so on.
 The HTF has no SMA 44 series at all (it is not created), so the two price charts differ by
 design. Both overlays share the candle price scale and have no axis labels or price lines.
 
-### 5.2 RSI sub-panel (both panels)
+### 5.2 RSI — calculated, not drawn
 
-| Indicator | Period | Method | Colour | Width | Warm-up |
-|---|---|---|---|---|---|
-| **RSI 14** | 14 bars | **Wilder smoothing** (the TradingView default) | `#2962ff` blue | 2px | first value at bar 15 |
-| **SMA 14 of RSI** | 14 bars | **Simple average of RSI values** — *not* of price | `#ffb020` orange | 1px | first value at bar 28 |
-
-RSI panel settings:
-
-- Fixed **0–100** price scale, 1 decimal readout.
-- Reference bands at **70** (red, `rgba(239,83,80,.6)`) and **30** (green,
-  `rgba(38,166,154,.6)`), dashed with axis labels.
-- Height 130px, sitting directly under its price chart.
+The RSI sub-panel that used to sit under each price chart (RSI 14 and its SMA 14, with 70 / 30 bands) has been **removed from both the HTF and the LTF page**. RSI 14 and the SMA 14 of RSI are still
+**calculated** — Condition 1 (RSI cross), Condition 4 (SMA-of-RSI extreme) and the HTF SMA-of-RSI filter use them, with the rules in 5.3 — they are just not plotted.
 
 ### 5.3 Calculation rules
 
@@ -349,7 +341,7 @@ Wilder RSI 14** supports the pattern's move. Shipped settings: `enabled: true`,
 `period: 14`, `pattern_a_max: 65`, `pattern_b_min: 35`.
 
 ```text
-rsi_ma = SMA(period) of Wilder RSI(14) over the HTF candles — the value the RSI sub-panel plots
+rsi_ma = SMA(period) of Wilder RSI(14) over the HTF candles — the SMA 14 of the Wilder RSI 14 (calculated; the RSI panel is no longer drawn)
 Pattern A passes when rsi_ma <  pattern_a_max       Pattern B passes when rsi_ma > pattern_b_min
 ```
 
@@ -473,7 +465,7 @@ arrow; C1 marks that fail the SMA test keep the plain `C1 A` / `C1 B` arrow.
 
 ### LTF Condition 3 — SMA spread band on C1 + C2
 
-Spec: [`docs/design/ltf-conditions-plan.md`](docs/design/ltf-conditions-plan.md). On a C1 + C2 candle the SMA 9 / SMA 44 **spread %** (the histogram value) must sit in a
+Spec: [`docs/design/ltf-conditions-plan.md`](docs/design/ltf-conditions-plan.md). On a C1 + C2 candle the SMA 9 / SMA 44 **spread %** (the SMA 9 / SMA 44 spread, calculated but no longer plotted) must sit in a
 small band next to zero: **A** `0 < spread ≤ +0.020` (`max_pct`), **B** `−0.020 ≤ spread < 0` (lower edge exclusive — C2 already
 needs the right sign — upper edge inclusive). Where C1 **and** C2 **and** C3 hold, the candle gets **one** arrow
 `C1+C2+C3 A` (gold, below) / `C1+C2+C3 B` (violet, above); marks that reach only C2 keep `C1+C2`, only C1 keep `C1`.
@@ -535,7 +527,7 @@ Draw trend lines on the **HTF and LTF price charts**, as in TradingView.
 The HTF **price chart itself** carries two extra lines: **CE OI change** (red) and **PE OI change** (green), built from the `ce_oi_change` /
 `pe_oi_change` columns of the `flow` series in the dashboard files. The candles use the upper part of the chart (right price axis) and the two lines run in a band
 under them on their **own left axis** (short numbers such as `231.45M`). The readout row above the chart shows both values of the hovered candle as full numbers
-(`CE OI change +231,448,685  PE OI change +70,161,715`). To keep the HTF price and RSI time axes aligned the HTF RSI chart has an identical, empty left axis.
+(`CE OI change +231,448,685  PE OI change +70,161,715`)..
 The trade-off: the candles get less height than on the LTF chart, and the left axis labels run up the full height although the lines occupy only the lower band.
 
 - **Per candle:** the file has one change per minute (the change during the minute that ends at its timestamp). A **1-minute** candle shows exactly that number;
@@ -562,30 +554,21 @@ Results are points for 1 unit.
 - The whole C1 → C5 chain is evaluated by one shared function (`TL.runChain` in `src/ltf-conditions.js`), used by the page, the simulation and the runner.
 - Nothing here is a trading system: no orders, no live data. The recorded sample is small and the rules were tuned on it, so the numbers are illustrations.
 
-### LTF SMA spread view (indicator, not a condition)
+### SMA spread — calculated, not drawn
 
-The LTF panel has a third pane under the RSI pane: a histogram of **(SMA 9 − SMA 44) ÷ SMA 44 × 100** for every
-candle (green above 0, red below, blank until SMA 44 exists at candle 44), sharing the time axis and crosshair with
-the price and RSI charts. A readout row shows `SMA 9 · SMA 44 · Spread ±x.xxx%` for the hovered candle. View-only:
-no config, no toggle, and it does not feed Conditions 1/2. See [`docs/design/ltf-conditions-plan.md`](docs/design/ltf-conditions-plan.md).
+The histogram pane of **(SMA 9 − SMA 44) ÷ SMA 44 × 100** that used to sit under the LTF price chart (with its `SMA 9 · SMA 44 · Spread` readout) has been **removed**. The spread is still
+**calculated** — Condition 3 tests it against the `min_pct` … `max_pct` band — and the Condition 3 readout chip still shows the spread of the hovered candle; it is just no longer plotted.
 
 ## 7. Crosshair & legends
 
-- Dashed crosshair on both the price and RSI charts, **snapped to the hovered candle**
+- Dashed crosshair on the price chart, **snapped to the hovered candle**
   (Magnet mode). The line, its time label, both legends and the confirmation readout
   always name the same bar — in Normal mode the line could rest between candles while
   the labels named a neighbouring one.
 - **Price legend**: `time · O H L C · ▲/▼ close`. Falls back to the last bar when the
   pointer leaves the chart.
-- **RSI legend**: `time · RSI 14 value · SMA 14 value`.
-- Hovering *either* sub-chart updates **both** legends to that timestamp, and the
-  crosshair is mirrored between the price and RSI charts of the same panel —
-  **pixel-aligned**: both sub-charts share the same price-scale width (`minimumWidth`
-  floor of 66px at chart creation, reconciled at runtime) and the same logical index
-  space (the RSI series carries whitespace points for its warm-up bars so it starts at
-  the session's first candle). Without those, the same timestamp sat ~15–30px apart on
-  the two stacked charts and the mirrored line and time labels visibly disagreed.
-- **The HTF and LTF panels mirror each other too.** Hovering any sub-chart of one panel
+- Hovering a panel's chart updates its legends and the confirmation readout to that timestamp.
+- **The HTF and LTF panels mirror each other too.** Hovering one panel's chart
   pins the other panel at the same *moment*, snapped to that timeframe's own candle —
   hovering a 1m candle at 12:28 highlights the 12:25 5m candle on the HTF, and both
   panels' legends and confirmation readouts follow. (Lightweight Charts does not re-fire
@@ -608,6 +591,33 @@ asynchronously, so the sync compares against the target chart's current range ra
 using a boolean guard — otherwise the echo snaps the charts back apart.
 
 ---
+
+### How a trade is drawn on the LTF chart
+
+Every simulated trade of the selected strategy is highlighted so the entry and exit candles are easy to find:
+
+- **Entry candle** — a **white column** behind the whole candle, an arrow (cyan ▲ below the candle for a long, amber ▼ above it for a short) and the label **🟢 LONG 22850.55** / **🔴 SHORT 22850.55**.
+- **Exit candle** — a **green column** (profit) or **red column** (loss) and the label **✅ TP +14.35**, **❌ SL −3.75**, **⏰ HARD +2.00** or **🔚 EOD 0.00**.
+- **Position box** between them (behind the candles): a green zone from the entry price up / down to the target, a red zone from the entry price to the stop, a green / red outline for the result, and dashed **entry** (white), **target** (green) and **stop** (red) lines.
+- A trade that is still open (bar replay) has no exit column; its box runs on to the right edge and its label ends with `(open)`.
+
+### Bar replay
+
+The toolbar's **⏪ Bar replay** shows a session as if it were happening. Click it, then **click a candle on either chart** — everything after that candle disappears and the session plays forward from there.
+
+| Control | What it does |
+|---|---|
+| ▶ / ⏸ (or **Space**) | play / pause |
+| ⏮ / ⏭ (or **← / →**) | back / forward one LTF candle |
+| speed | 1× · 2× · 5× · 10× · 25× (candles per second: 1, 2, 5, 10, 25) |
+| slider | jump to any candle of the session |
+| bars in view | 60 · 120 · 240 · 500 candles visible at once (the HTF chart shows the same stretch of time) |
+| ✕ Exit (or **Esc**) | back to the whole session |
+
+- **Nothing from the future is ever used.** At every step the page rebuilds both charts, every indicator, the HTF patterns, the C1–C6 arrows and the strategy trades from **only the ticks up to the replay time** (`src/replay.js`). The newest LTF candle is always complete; the newest HTF candle is still forming, and the HTF rules do not count a candle until it has closed — so no pattern appears early.
+- **Trades** appear when their signal is found, as in live trading. A trade that has not yet reached its stop or target is marked `(open)` and left out of the statistics until it closes; the strategy badge and the P&L therefore only count finished trades.
+- Changing the instrument or date leaves replay; changing the timeframe keeps the replay time.
+- Tests: `tests/replay.test.js` (T140–T144) — among them a check on real sessions that the candles and the strategy signals found on the truncated session are exactly those of the full session that were already knowable (no leaks, none missing).
 
 ## 8. Appearance
 
@@ -666,3 +676,13 @@ library is vendored in `web/lib/`.
 - The back-test is **before costs** and covers a small sample; see [docs/strategy.md](docs/strategy.md) §8 and [docs/analysis.md](docs/analysis.md) §4.
 - An invalid `config/htf.json` fails closed while active: badge `HTF: Config error`,
   readout shows the first problem, zero matches until the config is fixed and regenerated.
+
+## Paths (`config/paths.json`)
+
+| Key | Used for | Default |
+|---|---|---|
+| `input_dir` | the `*_DASHBOARD.json` tick files (backtest, `build-data`, research) | `input` |
+| `output_dir` | the trades CSV (`--csv`) and run logs (`--out`) | `output` |
+| `research_log_dir` | logs written by `research/optimize` | `research/optimize/logs` |
+
+A relative path is resolved against the project folder, an absolute path (for example `/data/disc/input` on a VPS) is used as is, and the output folder is created if missing. A bare `--csv trades.csv` or `--out run.log` lands inside `output_dir`; an absolute file path is kept. To override without editing the file, set `DISC_PATHS_FILE`, `DISC_INPUT_DIR`, `DISC_OUTPUT_DIR` or `DISC_RESEARCH_LOG_DIR`. The web page's generated bundle (`web/generated/`) stays where it is because `web/index.html` loads it by relative URL.

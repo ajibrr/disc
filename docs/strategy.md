@@ -103,16 +103,14 @@ the E candle's close **and** the zone's close. Usually that is simply the next c
 ## 6. Exit — as built
 
 The **stop** is measured in points from the entry price, using the signal's **E candle distance** as the risk unit
-(Pattern A = E high − E−1 low, Pattern B = E−1 high − E low). The **target** depends on `target_mode` (shipped: `previous_extreme`).
+(Pattern A = E high − E−1 low, Pattern B = E−1 high − E low). The **target** is always a multiple of that same distance and is read only from `target_multiple` in `config/strategies.json`.
 
 | | Long (Pattern A) | Short (Pattern B) |
 |---|---|---|
 | **Stop loss** | entry **−** `stop_multiple` × E candle distance | entry **+** `stop_multiple` × E candle distance |
-| **Target** — `target_mode: "previous_extreme"` *(shipped)* | the **highest high** of the previous 20 candles before the E candle (the C5 *back high*) | the **lowest low** of those 20 candles (the C5 *back low*) |
-| Target — `target_mode: "multiple"` | entry **+** `target_multiple` × E candle distance | entry **−** `target_multiple` × E candle distance |
-| Shipped values | `stop_multiple` = 1, `target_mode` = `previous_extreme` (`target_multiple` 2 is only used in `multiple` mode) | same |
+| **Target** | entry **+** `target_multiple` × E candle distance | entry **−** `target_multiple` × E candle distance |
 
-With `previous_extreme` the reward is whatever distance the market left to that high / low, so the reward : risk **varies per trade** (C5 guarantees the back distance is above 2 × the E distance, measured from the E candle). The window is C5's `back_candles` (20) in `config/ltf.json`. If the back high / low is not beyond the entry price when the trade would enter (price has already passed it) the signal is skipped (`target-behind-entry`).
+Condition 5's previous high / low (the *back high / low*) is a **filter only**; it is never used as a target. The old `target_mode: "previous_extreme"` was removed, and a config that still contains it is rejected (`target_mode: "multiple"` is tolerated but unnecessary). Choose `target_multiple` realistically: a very large value is never reached and every trade then ends at the stop or the hard exit.
 Hit ratio goes down and the average win goes up: in the first back-test with it (8.1-1) the hit ratio fell from 38.6 % to 31.8 % while total P&L rose from +40.20 to +80.95 pts.
 
 | Rule | Behaviour |
@@ -153,9 +151,9 @@ Settings: [config/strategies.json](../config/strategies.json) → `SB_Bhanusali.
   at the exit (green for profit, red for loss; **HARD** marks a 15:19 hard exit).
 - **Browser console** (F12, or Cmd+Option+J on a Mac): each time the LTF chart is evaluated a `[strategy] NIFTY 2026-10-23 12s — 2 trades, 1 wins / 1 losses …`
   group appears with a trade-by-trade table and the statistics line (expand the group).
-- **All recorded sessions at once (terminal):** `node scripts/run-backtest.js` (add `--trades` for every trade, `--ltf 12,36` to pick timeframes,
+- **All recorded sessions at once (terminal):** `node scripts/run-backtest.js` (add `--trades` for every trade, `--csv [file]` to write every trade to a CSV file (default `trades.csv`; it also carries the HTF candle's close time, its Wilder RSI 14 and the SMA 14 of that RSI), `--ltf 12,36` to pick timeframes,
   `--json` for machine-readable output, `--out backtest.log` to also save the report to a log file).
-- **What-if without editing any file:** `node scripts/run-backtest.js --set ltf.condition_5_distance_ratio.distance_multiplier=2 --set strategy.target_mode=multiple --set strategy.target_multiple=3` (`strategy.` changes the `trade` rules of every strategy selected for that run).
+- **What-if without editing any file:** `node scripts/run-backtest.js --set ltf.condition_5_distance_ratio.distance_multiplier=2 --set strategy.target_multiple=3` (`strategy.` changes the `trade` rules of every strategy selected for that run).
 
 ---
 
@@ -261,7 +259,7 @@ Same sessions; the only change is the first version of LTF Condition 6 (every tr
 
 C6 removes 11 trades (all with a risk of 5 points or more). The total profit is lower, but the risk per trade, the drawdown (−36 %) and the worst loss (−15.40 → −4.35) are all lower and the profit factor is higher. The largest single loss in the old run (−15.40) is gone. Still a small sample, before costs.
 
-**Same run with the target moved to the previous high / low (`target_mode: previous_extreme`, the shipped setting now; C6 on, no costs):**
+**Same run with the target moved to the previous high / low (`target_mode: previous_extreme`, a historical study — that mode has since been removed; C6 on, no costs):**
 
 | | Target = 2 × E distance (8.1 above) | **Target = previous high (long) / low (short) of the 20 back candles** |
 |---|---|---|

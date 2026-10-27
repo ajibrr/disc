@@ -33,6 +33,7 @@ const TS = require('../../src/strategies.js');
 const TFlow = require('../../src/oi-flow.js');
 
 const root = path.join(__dirname, '..', '..');
+const PATHS = require('../../src/paths.js');
 const args = process.argv.slice(2);
 const mode = args[0];
 const opt = (n) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : null; };
@@ -52,12 +53,13 @@ const reg = TS.normalizeRegistry(readJson('config/strategies.json'));
 const entry = reg.byName.SB_Bhanusali;
 const strat = entry.trade;
 const filter = TC.normalizeFilter(htfRaw); filter.rsi = TC.normalizeSmaRsiFilter(htfRaw); filter.oi = TC.normalizeOiFilter(htfRaw);
+filter.oiInv = TC.normalizeOiFilterInverse(htfRaw);   // swapped-direction OI gate (oi_change_filter_inverse)
 const day = (t) => new Date((t + 19800) * 1000).toISOString().slice(0, 10);
 
 /* ---------------- data: sessions and, per LTF, the HTF zones (they do not depend on the LTF settings) ---------------- */
 const sessions = [];
-for (const f of fs.readdirSync(path.join(root, 'input')).filter((x) => /_DASHBOARD\.json$/.test(x)).sort()) {
-  let d; try { d = readJson('input/' + f); } catch (e) { continue; }
+for (const f of fs.readdirSync(PATHS.inputDir).filter((x) => /_DASHBOARD\.json$/.test(x)).sort()) {
+  let d; try { d = JSON.parse(fs.readFileSync(path.join(PATHS.inputDir, f), 'utf8')); } catch (e) { continue; }
   const key = String(d.asset || '').toLowerCase(), series = d[key + '_seconds'];
   if (!series || !series.length) continue;
   const ticks = { times: series.map((r) => r.timestamp_epoch), prices: series.map((r) => r[key]) };
@@ -280,7 +282,7 @@ function gridScan(spec) {
   const distinct = new Set(out.map((r) => r.n + '|' + r.w + '|' + f1(r.pnl)));
   lines.push('');
   lines.push(out.length + ' variations produce only ' + distinct.size + ' distinct results (many pairs select the same trades). ' + out.filter((r) => r.n === 0).length + ' produce no trade at all.');
-  const file = path.resolve(opt('out') || path.join(__dirname, 'logs', spec.log));
+  const file = path.resolve(opt('out') || path.join(PATHS.researchLogDir, spec.log));
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, lines.join('\n') + '\n');
   console.log(lines.slice(0, 40).join('\n'));
@@ -371,7 +373,7 @@ if (mode === 'neighbors') {
   lines.push('   share of neighbours with fewer than 10 trades: ' + (nn.filter((v) => v < 10).length / nn.length * 100).toFixed(0) + '%');
   lines.push('   profit factor median ' + f1(q(pts.map((p) => p.sm.all.pf === Infinity ? 99 : p.sm.all.pf).filter((v) => v !== null), 0.5)) + ' · P&L median ' + f1(q(pts.map((p) => p.sm.all.pnl), 0.5)));
   const text = lines.join('\n') + '\n';
-  const file = path.resolve(opt('out') || path.join(__dirname, 'logs', 'neighbors.log'));
+  const file = path.resolve(opt('out') || path.join(PATHS.researchLogDir, 'neighbors.log'));
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, text);
   console.log(text + 'full log written to ' + path.relative(root, file));
@@ -425,7 +427,7 @@ if (mode === 'cv') {
   lines.push('  tuned,   all sessions   : ' + fs_.n + ' trades, ' + pc1(fs_.win) + ' win, P&L ' + f1(fs_.pnl) + ', PF ' + f1(fs_.pf) + '   (in-sample — flattering)');
   lines.push('  expected on unseen days : about the held-out row for ' + bestK + ' change(s) above: ' + pooled[bestK].n + ' trades, ' + pc1(pooled[bestK].win) + ' win, P&L ' + f1(pooled[bestK].pnl) + ' (pooled over ' + sessions.length + ' sessions)');
   const text = lines.join('\n') + '\n';
-  const file = path.resolve(opt('out') || path.join(__dirname, 'logs', 'cv.log'));
+  const file = path.resolve(opt('out') || path.join(PATHS.researchLogDir, 'cv.log'));
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, text);
   fs.writeFileSync(file.replace(/\.log$/, '-best-config.json'), JSON.stringify(final.cfg, null, 2) + '\n');

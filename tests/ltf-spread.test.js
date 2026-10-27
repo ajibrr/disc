@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ltf-spread.test.js — LTF SMA spread view (indicator only, NOT a condition), see docs/design/ltf-conditions-plan.md.
+ * ltf-spread.test.js — the SMA spread calculation (used by Condition 3; the spread chart that used to display it was removed from the page), see docs/design/ltf-conditions-plan.md.
  *
  *   spread % = (SMA 9 - SMA 44) / SMA 44 * 100     (signed)
  * Drawn as a histogram pane under the LTF RSI pane plus a crosshair readout.
@@ -84,16 +84,12 @@ console.log('\nT63 — it is a view, not a condition: C1/C2 behaviour untouched'
 }
 
 /* ------------------------------------------------------------------ */
-console.log('\nT64 — browser wiring (static source assertions; live checks in the preview)');
+console.log('\nT64 — browser wiring (static source assertions): the spread PANE was removed from the page, the calculation stays');
 {
   const html = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  ok((html.match(/<div class="spread-chart" data-role="spread-chart">/g) || []).length === 1, 'exactly one spread chart pane, in the LTF panel only');
-  ok(/data-role="spread-legend"/.test(html), 'spread legend row present');
-  ok(/addHistogramSeries/.test(html) && /TL\.spreadPct\(sma9, sma44\)/.test(html), 'histogram fed by spreadPct of the plotted SMA 9 / SMA 44 arrays');
-  ok(/drawSpreadLegend\(/.test(html), 'crosshair readout wired');
-  ok(/mirror\('spread'/.test(html), 'spread crosshair mirrors to the other charts');
-  console.log('  manual (done in the preview): bars aligned under the candles; green above 0 / red below; hovering any of');
-  console.log('  the three charts moves all three crosshairs and updates the Spread readout; all 5 LTFs; NIFTY + SENSEX; HTF unchanged.');
+  ok(!/spread-chart|spread-legend|spreadChart|spreadSeries|drawSpreadLegend|addHistogramSeries/.test(html), 'no spread chart, legend or histogram series remains on the page (LTF or HTF)');
+  ok(/TL\.normalizeCondition3\(window\.LTF_CONFIG\)/.test(html), 'Condition 3 (the spread BAND) is still wired — only the view was removed');
+  ok(typeof TL.spreadPct === 'function', 'the spreadPct calculation used by Condition 3 is still exported');
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

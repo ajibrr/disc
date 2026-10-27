@@ -13,8 +13,8 @@
   },
   "condition_3_spread_band": {
     "enabled": true,
-    "min_pct": 0,
-    "max_pct": 0.02
+    "min_pct": 0.0,
+    "max_pct": 0.025
   },
   "condition_4_rsi_sma_extreme": {
     "enabled": true,

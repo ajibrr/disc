@@ -15,6 +15,8 @@
 <script src="../src/strategies.js"></script>
 <script src="../src/oi-flow.js"></script>
 <script src="../src/trendlines.js"></script>
+<script src="../src/replay.js"></script>
+<script src="../src/trade-view.js"></script>
 <style>
   :root {
     --bg: #0d1117;
@@ -176,14 +178,8 @@
   }
   .rsi-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
   .rsi-legend .t { color: var(--text); }
-  .rsi-legend .rsi-v { color: #6d9bff; }
-  .rsi-legend .ma-v { color: #ffb020; }
-  .rsi-chart { height: 130px; flex: none; border-top: 1px solid rgba(42, 46, 57, .6); }
-  .spread-chart { height: 100px; flex: none; border-top: 1px solid rgba(42, 46, 57, .6); }
   .oi-legend .ce-v { color: #ef5350; }
   .oi-legend .pe-v { color: #26a69a; }
-  .spread-legend .pos { color: var(--up); }
-  .spread-legend .neg { color: var(--down); }
 
   /* ---------- HTF confirmation ---------- */
   .conf-legend {
@@ -228,6 +224,10 @@
     border-radius: 4px; height: 24px; padding: 0 9px; cursor: pointer; font-size: 12px;
   }
   .tool-btn:hover { border-color: #3d4450; }
+  [hidden] { display: none !important; }
+  #replay-ctrl { gap: 6px; }
+  #rp-slider { width: 150px; accent-color: #2962ff; }
+  #rp-label { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tool-btn.on { background: #2962ff33; border-color: #2962ff; color: #6d9bff; }
   #tl-color { width: 26px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: none; cursor: pointer; }
   .strat-badge.pos { color: #26a69a; border-color: #26a69a66; background: rgba(38, 166, 154, .12); }
@@ -268,6 +268,20 @@
   <div class="ctrl" title="Which strategy's trades are drawn and counted. Switched on / off in config/strategies.json">
     <label for="strategy-select">Strategy</label>
     <select id="strategy-select"></select>
+  </div>
+
+  <div class="ctrl" id="replay-ctrl" title="Bar replay: shows the session as if it were happening — only the candles up to the replay time exist, and every indicator and strategy result uses only those. Click Bar replay, then click a candle on either chart to start from.">
+    <button class="tool-btn" id="rp-enter" type="button">&#9194; Bar replay</button>
+    <span class="ctrl" id="rp-controls" hidden>
+      <button class="tool-btn" id="rp-back" type="button" title="Back one candle (Left arrow)">&#9198;</button>
+      <button class="tool-btn" id="rp-play" type="button" title="Play / pause (Space)">&#9654;</button>
+      <button class="tool-btn" id="rp-fwd" type="button" title="Forward one candle (Right arrow)">&#9197;</button>
+      <select id="rp-speed" title="Playback speed (candles per second)"></select>
+      <select id="rp-window" title="How many candles of the chart you see at once (the LTF chart; the HTF chart shows the same stretch of time)"></select>
+      <input type="range" id="rp-slider" min="1" max="1" value="1" title="Drag to jump to any candle" />
+      <span id="rp-label"></span>
+      <button class="tool-btn" id="rp-exit" type="button" title="Leave replay and show the whole session (Esc)">&#10005; Exit</button>
+    </span>
   </div>
 
   <div class="lock" id="lock" title="LTF (signal) and HTF (confirmation) are locked at a 5:1 ratio">
@@ -320,8 +334,6 @@
     <div class="conf-legend" data-role="conf-legend"></div>
     <div class="rsi-legend oi-legend" data-role="oi-legend"></div>
     <div class="chart" data-role="chart"></div>
-    <div class="rsi-legend" data-role="rsi-legend"></div>
-    <div class="rsi-chart" data-role="rsi-chart"></div>
   </section>
 
   <section class="panel" data-panel="ltf">
@@ -336,10 +348,6 @@
     <div class="legend" data-role="legend"></div>
     <div class="conf-legend" data-role="conf-legend"></div>
     <div class="chart" data-role="chart"></div>
-    <div class="rsi-legend" data-role="rsi-legend"></div>
-    <div class="rsi-chart" data-role="rsi-chart"></div>
-    <div class="rsi-legend spread-legend" data-role="spread-legend"></div>
-    <div class="spread-chart" data-role="spread-chart"></div>
   </section>
 </main>
 
@@ -371,13 +379,14 @@ const TC = window.TickConfirm;   // pure rule module (src/confirmation.js)
 const SLOPE_FILTER = TC.normalizeFilter(window.HTF_CONFIG);
 SLOPE_FILTER.rsi = TC.normalizeSmaRsiFilter(window.HTF_CONFIG);
 SLOPE_FILTER.oi = TC.normalizeOiFilter(window.HTF_CONFIG);        // option-chain OI-change gate (per-candle values attached in getStates)
+SLOPE_FILTER.oiInv = TC.normalizeOiFilterInverse(window.HTF_CONFIG);  // swapped-direction twin (oi_change_filter_inverse)
 const CONFIG_PROBLEMS = (() => {
   const sec = (cfg, name) => (cfg.problems || []).map((p) =>
     (p.startsWith('sma_') || p.startsWith('oi_') || p.startsWith('config')) ? p : name + ': ' + p);
-  const all = sec(SLOPE_FILTER, 'sma_slope_filter').concat(sec(SLOPE_FILTER.rsi, 'sma_rsi_filter'), sec(SLOPE_FILTER.oi, 'oi_change_filter'));
+  const all = sec(SLOPE_FILTER, 'sma_slope_filter').concat(sec(SLOPE_FILTER.rsi, 'sma_rsi_filter'), sec(SLOPE_FILTER.oi, 'oi_change_filter'), sec(SLOPE_FILTER.oiInv, 'oi_change_filter_inverse'));
   return all.filter((p, i) => all.indexOf(p) === i);   // dedupe (e.g. missing config.js twice)
 })();
-const CONFIG_ERROR = SLOPE_FILTER.mode === 'error' || SLOPE_FILTER.rsi.mode === 'error' || SLOPE_FILTER.oi.mode === 'error';
+const CONFIG_ERROR = SLOPE_FILTER.mode === 'error' || SLOPE_FILTER.rsi.mode === 'error' || SLOPE_FILTER.oi.mode === 'error' || SLOPE_FILTER.oiInv.mode === 'error';
 if (CONFIG_ERROR) console.warn('[config] ' + CONFIG_PROBLEMS.join('; '));
 
 /* LTF conditions — from config/ltf.json via `node scripts/build-config.js` (same rule: run it
@@ -394,6 +403,8 @@ if (LTF_COND3.mode === 'error') console.warn('[ltf config] ' + LTF_COND3.problem
 const LTF_COND4 = TL.normalizeCondition4(window.LTF_CONFIG);   // SMA-of-RSI extreme before C1+C2+C3 (ltf.md)
 if (LTF_COND4.mode === 'error') console.warn('[ltf config] ' + LTF_COND4.problems.join('; '));
 const TL_ = window.TickLines;    // trend-line helpers (src/trendlines.js)
+const TR = window.TickReplay;    // bar-replay helpers (src/replay.js)
+const TV = window.TickTradeView; // how a trade is drawn on the LTF chart (src/trade-view.js)
 const TF_ = window.TickFlow;     // option-chain flow helpers (src/oi-flow.js)
 const TT = window.TickTrade;     // strategy simulation (src/trade-sim.js, docs/strategy.md)
 const TS = window.TickStrategies;   // strategy registry (src/strategies.js, config/strategies.json)
@@ -435,7 +446,7 @@ function tickMarkLabel(time, type) {
 const tickCache = new Map();
 
 /** Flatten the stored segments of one instrument/date into parallel arrays. */
-function getTicks(symbol, date) {
+function getFullTicks(symbol, date) {
   const key = symbol + '|' + date;
   if (tickCache.has(key)) return tickCache.get(key);
 
@@ -458,6 +469,16 @@ function getTicks(symbol, date) {
   const out = { times, prices, meta: day };
   tickCache.set(key, out);
   return out;
+}
+
+/** The session's ticks — or, during a bar replay, only the ticks up to the replay time (src/replay.js), so nothing later can leak in. */
+let replayViewCache = { key: null, view: null };
+function getTicks(symbol, date) {
+  const full = getFullTicks(symbol, date);
+  if (!full || typeof app === 'undefined' || !app.replay || app.replay.time == null) return full;
+  const key = symbol + '|' + date + '|' + app.replay.time;
+  if (replayViewCache.key !== key) replayViewCache = { key, view: TR.truncateTicks(full, app.replay.time) };
+  return replayViewCache.view || full;
 }
 
 /** Aggregate 1s ticks into OHLC candles of `tf` seconds, forward-filling gaps. */
@@ -507,7 +528,7 @@ function smaNullable(values, period) {
   return out;
 }
 
-/** Wilder RSI 14 (same smoothing TradingView uses). */
+/** Wilder RSI 14 (same smoothing TradingView uses). No RSI panel is drawn any more; the function stays because the tests use it as the reference RSI. */
 function rsi(closes, period = 14) {
   const out = new Array(closes.length).fill(null);
   if (closes.length <= period) return out;
@@ -559,13 +580,8 @@ const CHART_OPTS = {
       labelBackgroundColor: '#363a45',
     },
   },
-  // minimumWidth: floor both sub-charts' price scales to the same width from birth.
-  // The scales otherwise size to their labels ("22600.00" ≈ 66px vs "100.0" ≈ 48px),
-  // which makes the plot widths differ and the same timestamp land at different x
-  // pixels on the price and RSI charts — visibly misaligning the mirrored crosshair
-  // and the time-axis labels. 66 = measured width of the widest NIFTY/SENSEX label at
-  // the 11px UI font; Panel.syncScaleWidths() still reconciles at runtime if a
-  // future instrument ever needs a wider label.
+  // minimumWidth: a fixed floor for the price scale width (66 = measured width of the widest NIFTY/SENSEX label at the 11px UI font),
+  // so the plot width does not jump when the labels change.
   rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.12, bottom: 0.12 }, minimumWidth: 66 },
   timeScale: {
     borderColor: '#2a2e39',
@@ -593,10 +609,6 @@ class Panel {
     this.countEl = root.querySelector('[data-role="count"]');
     this.legendEl = root.querySelector('[data-role="legend"]');
     this.chartEl = root.querySelector('[data-role="chart"]');
-    this.rsiLegendEl = root.querySelector('[data-role="rsi-legend"]');
-    this.rsiChartEl = root.querySelector('[data-role="rsi-chart"]');
-    this.spreadChartEl = root.querySelector('[data-role="spread-chart"]');     // LTF only
-    this.spreadLegendEl = root.querySelector('[data-role="spread-legend"]');
     this.oiLegendEl = root.querySelector('[data-role="oi-legend"]');           // HTF only: CE / PE OI change readout (src/oi-flow.js)
 
     for (const sec of (key === 'htf' ? HTF_OPTIONS : LTF_OPTIONS)) {
@@ -612,13 +624,10 @@ class Panel {
     });
     root.querySelector('[data-role="fit"]').addEventListener('click', () => {
       this.chart.timeScale().fitContent();
-      this.rsiChart.timeScale().fitContent();
-      if (this.spreadChart) this.spreadChart.timeScale().fitContent();
     });
 
     // HTF: the CE / PE OI-change lines live in this same chart, in a band under the candles on a LEFT price scale.
-    // The candles keep the upper part of the right scale; the RSI chart below gets an identical (empty) left scale so
-    // both time axes stay pixel-aligned.
+    // The candles keep the upper part of the right scale.
     const OI_BAND_TOP = 0.72;
     this.chart = LightweightCharts.createChart(this.chartEl, key === 'htf' ? {
       ...CHART_OPTS,
@@ -645,48 +654,6 @@ class Panel {
           priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
         })
       : null;
-
-    // RSI sub-panel: its own chart instance, time-synced to the price chart
-    this.rsiChart = LightweightCharts.createChart(this.rsiChartEl, {
-      ...CHART_OPTS,
-      ...(key === 'htf' ? { leftPriceScale: { visible: true, borderColor: '#2a2e39', minimumWidth: 66 } } : {}),
-      rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.2, bottom: 0.2 }, minimumWidth: 66 },
-    });
-    const rsiFmt = { type: 'custom', formatter: (v) => v.toFixed(1), minMove: 0.1 };
-    const pinScale = () => ({ priceRange: { minValue: 0, maxValue: 100 } });
-    this.rsiSeries = this.rsiChart.addLineSeries({
-      color: '#2962ff', lineWidth: 2, title: 'RSI 14',
-      priceLineVisible: false, priceFormat: rsiFmt, autoscaleInfoProvider: pinScale,
-    });
-    this.rsiMaSeries = this.rsiChart.addLineSeries({
-      color: '#ffb020', lineWidth: 1, title: 'SMA 14 (RSI)',
-      priceLineVisible: false, priceFormat: rsiFmt, autoscaleInfoProvider: pinScale,
-    });
-    for (const lvl of [70, 30]) {
-      this.rsiSeries.createPriceLine({
-        price: lvl,
-        color: lvl === 70 ? 'rgba(239, 83, 80, .6)' : 'rgba(38, 166, 154, .6)',
-        lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: String(lvl),
-      });
-    }
-
-    // LTF only: SMA 9 / SMA 44 spread histogram (view-only indicator, ltf.md)
-    if (this.spreadChartEl) {
-      this.spreadChart = LightweightCharts.createChart(this.spreadChartEl, {
-        ...CHART_OPTS,
-        rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.15 }, minimumWidth: 66 },
-        timeScale: { ...CHART_OPTS.timeScale, visible: false },
-      });
-      this.spreadSeries = this.spreadChart.addHistogramSeries({
-        title: 'SMA 9/44 %', priceLineVisible: false,
-        priceFormat: { type: 'custom', formatter: (v) => v.toFixed(3) + '%', minMove: 0.001 },
-      });
-      this.spreadSeries.createPriceLine({
-        price: 0, color: 'rgba(117, 134, 150, .7)', lineWidth: 1, lineStyle: 2,
-        axisLabelVisible: false, title: '',
-      });
-    }
-    this.spreadAt = new Map();    // candleTime -> { pct, fast, slow }
 
     // HTF only: option-chain flow — CE and PE open-interest CHANGE per candle, drawn INSIDE the price chart as two lines
     // on the left price scale (src/oi-flow.js)
@@ -740,99 +707,33 @@ class Panel {
         detached: () => { this._bandRU = null; },
         paneViews: () => [this._bandView],
       });
+
+      // trades: entry / exit candle columns and the position box (profit zone, loss zone, entry / target / stop lines), behind the candles
+      this.tradeBoxes = [];
+      this._tradeRenderer = { draw: (target) => this.drawTrades(target) };
+      this._tradeView = {
+        update() {},
+        zOrder() { return 'bottom'; },
+        renderer: () => this._tradeRenderer,
+      };
+      this.series.attachPrimitive({
+        attached: (p) => { this._tradeRU = p.requestUpdate; },
+        detached: () => { this._tradeRU = null; },
+        paneViews: () => [this._tradeView],
+      });
     }
 
     this.tfSec = Number(this.tfEl.value);
     this.candles = [];
     this.decimals = 2;
     this.seriesData = new Map();
-    this.rsiAt = new Map();
-    this.rsiMaAt = new Map();
-    this._rangeLock = false;
-    this._crossLock = false;
-
-    // keep both time axes in step inside the panel.
-    // LWC delivers these callbacks asynchronously, so a plain boolean guard
-    // misses the echo: instead, skip when the target already has that range.
-    const linkRange = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange((r) => {
-      if (!r) return;
-      const cur = b.timeScale().getVisibleLogicalRange();
-      if (cur && Math.abs(cur.from - r.from) < 1e-6 && Math.abs(cur.to - r.to) < 1e-6) return;
-      try { b.timeScale().setVisibleLogicalRange({ from: r.from, to: r.to }); } catch (e) { /* torn down */ }
-    });
-    linkRange(this.chart, this.rsiChart);
-    linkRange(this.rsiChart, this.chart);
-    if (this.spreadChart) {
-      linkRange(this.chart, this.spreadChart);
-      linkRange(this.spreadChart, this.chart);
-    }
-
-    /* Mirror the crosshair onto every OTHER chart of this panel (price / RSI / spread). */
-    const mirror = (src, time) => {
-      if (this._crossLock) return;
-      this._crossLock = true;
-      const put = {
-        chart: () => {
-          const c = time ? this.seriesData.get(time) : null;
-          if (c) this.chart.setCrosshairPosition(c.close, time, this.series);
-          else this.chart.clearCrosshairPosition();
-        },
-        rsi: () => {
-          const v = time ? this.rsiAt.get(time) : null;
-          if (v == null) this.rsiChart.clearCrosshairPosition();
-          else this.rsiChart.setCrosshairPosition(v, time, this.rsiSeries);
-        },
-        spread: () => {
-          if (!this.spreadChart) return;
-          const p = time ? this.spreadAt.get(time) : null;
-          if (!p) this.spreadChart.clearCrosshairPosition();
-          else this.spreadChart.setCrosshairPosition(p.pct, time, this.spreadSeries);
-        },
-      };
-      for (const k of Object.keys(put)) if (k !== src) put[k]();
-      this._crossLock = false;
-    };
-
     this.chart.subscribeCrosshairMove((param) => {
       const bar = param.time ? this.seriesData.get(param.time) : null;
       this.drawLegend(bar || this.candles[this.candles.length - 1]);
-      this.drawRsiLegend(
-        param.time
-          ? { time: param.time, rsi: this.rsiAt.get(param.time), ma: this.rsiMaAt.get(param.time) }
-          : this.lastRsiPoint
-      );
-      this.drawSpreadLegend(param.time);
       this.drawOiLegend(param.time);
-      mirror('chart', param.time);
     });
 
-    this.rsiChart.subscribeCrosshairMove((param) => {
-      this.drawRsiLegend(
-        param.time
-          ? { time: param.time, rsi: this.rsiAt.get(param.time), ma: this.rsiMaAt.get(param.time) }
-          : this.lastRsiPoint
-      );
-      this.drawLegend(param.time ? this.seriesData.get(param.time) : this.candles[this.candles.length - 1]);
-      this.drawSpreadLegend(param.time);
-      this.drawOiLegend(param.time);
-      mirror('rsi', param.time);
-    });
-
-    if (this.spreadChart) {
-      this.spreadChart.subscribeCrosshairMove((param) => {
-        this.drawLegend(param.time ? this.seriesData.get(param.time) : this.candles[this.candles.length - 1]);
-        this.drawRsiLegend(
-          param.time
-            ? { time: param.time, rsi: this.rsiAt.get(param.time), ma: this.rsiMaAt.get(param.time) }
-            : this.lastRsiPoint
-        );
-        this.drawSpreadLegend(param.time);
-        this.drawOiLegend(param.time);
-        mirror('spread', param.time);
-      });
-    }
-
-    // readout row — follows the crosshair on EITHER sub-chart of this panel
+    // readout row — follows the crosshair on the price chart
     const updateReadout = (param) => {
       if (this.key === 'htf') {
         this.drawConfirmLegend(param.time ? this.states.get(param.time + this.tfSec) : this.lastState, true);
@@ -841,8 +742,7 @@ class Panel {
       }
     };
     this.chart.subscribeCrosshairMove(updateReadout);
-    this.rsiChart.subscribeCrosshairMove(updateReadout);
-    if (this.spreadChart) this.spreadChart.subscribeCrosshairMove(updateReadout);
+    this.chart.subscribeClick((param) => { if (app.replay && app.replay.armed && param && param.time) rpStartFromClick(param.time); });
 
     if (this.outlineEl) {
       this.chart.timeScale().subscribeVisibleTimeRangeChange(() => this.scheduleOutline());
@@ -853,12 +753,9 @@ class Panel {
       if (w > 0 && h > 0) {
         target.applyOptions({ width: w, height: h });
         if (this === window.__panels[0] || this === window.__panels[1]) this.scheduleOutline();
-        this.syncScaleWidths();
       }
     }).observe(el);
     watch(this.chartEl, this.chart);
-    watch(this.rsiChartEl, this.rsiChart);
-    if (this.spreadChart) watch(this.spreadChartEl, this.spreadChart);
     this.initTrendLines();
   }
 
@@ -1079,6 +976,33 @@ class Panel {
     });
   }
 
+  /** Paint the trades (src/trade-view.js computes the shapes; this only draws them). */
+  drawTrades(target) {
+    if (!this.tradeBoxes || !this.tradeBoxes.length) return;
+    if (!target || typeof target.useMediaCoordinateSpace !== 'function') return;
+    target.useMediaCoordinateSpace(({ context, mediaSize }) => {
+      const ts = this.chart.timeScale();
+      const first = this.tradeBoxes[0].entryTime;
+      const a = ts.timeToCoordinate(first), b = ts.timeToCoordinate(first + this.tfSec);
+      const bar = a != null && b != null && b > a ? b - a : (ts.options().barSpacing || 6);          // one candle's width in pixels
+      const geom = { xOf: (t) => ts.timeToCoordinate(t), yOf: (p) => this.series.priceToCoordinate(p), bar, right: mediaSize.width, height: mediaSize.height };
+      context.save();
+      for (const box of this.tradeBoxes) {
+        for (const sh of TV.shapes(box, geom)) {
+          if (sh.type === 'rect') { context.fillStyle = sh.fill; context.fillRect(sh.x, sh.y, sh.w, sh.h); }
+          else if (sh.type === 'outline') { context.setLineDash([]); context.lineWidth = 1; context.strokeStyle = sh.color; context.strokeRect(sh.x + 0.5, sh.y + 0.5, sh.w, sh.h); }
+          else if (sh.type === 'line') { context.setLineDash(sh.dash || []); context.lineWidth = 1; context.strokeStyle = sh.color; context.beginPath(); context.moveTo(sh.x1, sh.y1); context.lineTo(sh.x2, sh.y2); context.stroke(); }
+        }
+      }
+      context.restore();
+    });
+  }
+
+  setTradeBoxes(boxes) {
+    this.tradeBoxes = boxes || [];
+    if (this._tradeRU) this._tradeRU();
+  }
+
   setBandWindows(windows) {
     this.bandWindows = windows || [];
     if (this._bandRU) this._bandRU();
@@ -1130,6 +1054,7 @@ class Panel {
     this.outlineLow = null;
     this.series.setMarkers([]);
     this.setBandWindows([]);
+    this.setTradeBoxes([]);
     if (this.outlineEl) this.outlineEl.style.display = 'none';
     if (this.confirmLegendEl) this.confirmLegendEl.innerHTML = '';
   }
@@ -1281,53 +1206,22 @@ class Panel {
       ' <span class="grp">rsi</span> ' +
       (c.rsi == null ? '<span class="hint">–</span>'
                      : c.rsi.toFixed(2) + ' ' + mark(gate));
-    const oiChip = (gate) => SLOPE_FILTER.oi.mode !== 'active' ? '' :
-      ' <span class="grp">oi</span> ' +
+    const oiActive = SLOPE_FILTER.oi.mode === 'active' || SLOPE_FILTER.oiInv.mode === 'active';
+    const oiGate = (p) => SLOPE_FILTER.oiInv.mode === 'active' ? c['oiInv' + p] : c['oi' + p];   // active direction picks the gate values
+    const oiChip = (gate) => !oiActive ? '' :
+      ' <span class="grp">oi' + (SLOPE_FILTER.oiInv.mode === 'active' ? '⇄' : '') + '</span> ' +
       (c.oiPe == null ? '<span class="hint">–</span>'
                       : 'PE ' + TF_.fmtCompact(c.oiPe) + ' CE ' + TF_.fmtCompact(c.oiCe) + ' ' + mark(gate));
     el.innerHTML =
       '<span class="t">' + stamp + '</span>' +
       '<span class="grp">A:</span> c1 ' + mark(c.c1) + ' c3 ' + mark(c.red2) + ' c4 ' + mark(c.red1) +
-        ' 5A ' + mark(c.c5aA) + ' 5B ' + mark(c.c5bA) + slopeChip(c.slopeA) + rsiChip(c.rsiA) + oiChip(c.oiA) +
+        ' 5A ' + mark(c.c5aA) + ' 5B ' + mark(c.c5bA) + slopeChip(c.slopeA) + rsiChip(c.rsiA) + oiChip(oiGate('A')) +
       '<span class="grp">B:</span> c1 ' + mark(c.c2) + ' c3 ' + mark(c.green2) + ' c4 ' + mark(c.green1) +
-        ' 5A ' + mark(c.c5aB) + ' 5B ' + mark(c.c5bB) + slopeChip(c.slopeB) + rsiChip(c.rsiB) + oiChip(c.oiB) +
+        ' 5A ' + mark(c.c5aB) + ' 5B ' + mark(c.c5bB) + slopeChip(c.slopeB) + rsiChip(c.rsiB) + oiChip(oiGate('B')) +
       stateLabel(state);
   }
 
   /* ---------- end confirmation rendering ---------- */
-
-  /**
-   * Pixel-align the two sub-charts of this panel. The right price scales size
-   * themselves to their widest label (e.g. 66px for "22600.00" vs 48px for
-   * "100.0"), which makes the plot widths — and therefore the bar spacing of two
-   * identically-ranged time axes — differ, so the same timestamp sat at different
-   * x pixels on the price and RSI charts (the mirrored crosshair looked off by
-   * ~15–30px). Floor both scales to the same width; no-op once equal.
-   *
-   * @returns {boolean} true when options were applied — the caller must re-fit
-   *   afterwards, because the relayout lands after a synchronous fitContent.
-   */
-  syncScaleWidths() {
-    // each chart's side price scales size themselves to their widest label (e.g. "22600.00" vs "100.0"), which makes the
-    // plot widths — and the bar spacing of the shared time axis — differ between the stacked charts. Equalize the scale
-    // WIDTHS side by side (right scale on every chart of the panel; the left scale on the two HTF charts that carry one).
-    const all = [this.chart, this.rsiChart].concat(this.spreadChart ? [this.spreadChart] : []);
-    const measure = (ch, side) => {
-      const el = ch.chartElement();
-      if (!el || el.getBoundingClientRect().width < 2) return null;
-      try { const w = ch.priceScale(side).width(); return w > 0 ? w : null; } catch (e) { return null; }
-    };
-    let changed = false;
-    for (const side of this.key === 'htf' ? ['right', 'left'] : ['right']) {
-      const group = side === 'left' ? [this.chart, this.rsiChart] : all;
-      const widths = group.map((ch) => measure(ch, side));
-      if (widths.some((w) => w == null) || widths.every((w) => w === widths[0])) continue;
-      const target = Math.max(...widths);
-      group.forEach((ch) => ch.applyOptions({ [side + 'PriceScale']: { minimumWidth: target } }));
-      changed = true;
-    }
-    return changed;
-  }
 
   render(fit) {
     const ticks = getTicks(app.symbol, app.date);
@@ -1338,18 +1232,12 @@ class Panel {
       this.series.setData([]);
       this.smaSeries.setData([]);
       if (this.sma44Series) this.sma44Series.setData([]);
-      this.rsiSeries.setData([]);
-      this.rsiMaSeries.setData([]);
-      if (this.spreadSeries) this.spreadSeries.setData([]);
-      this.spreadAt = new Map();
       if (this.ceSeries) { this.ceSeries.setData([]); this.peSeries.setData([]); }
       this.oiAt = new Map();
       if (this.oiLegendEl) this.oiLegendEl.innerHTML = '';
       this.lines = []; this.selectedId = null; this.draft = null; this.drag = null; this.redrawLines();
       this.countEl.textContent = 'no data';
       this.legendEl.innerHTML = '';
-      this.rsiLegendEl.innerHTML = '';
-      if (this.spreadLegendEl) this.spreadLegendEl.innerHTML = '';
       return;
     }
 
@@ -1362,8 +1250,6 @@ class Panel {
     const closes = this.candles.map((c) => c.close);
     const sma9 = smaNullable(closes, 9);
     const sma44 = this.sma44Series ? smaNullable(closes, 44) : null;
-    const rsi14 = rsi(closes, 14);              // Wilder RSI 14
-    const rsiMa14 = smaNullable(rsi14, 14);     // SMA 14 of the RSI values
 
     this.smaSeries.setData(
       this.candles.flatMap((c, i) => (sma9[i] == null ? [] : [{ time: c.time, value: sma9[i] }]))
@@ -1372,43 +1258,6 @@ class Panel {
       this.sma44Series.setData(
         this.candles.flatMap((c, i) => (sma44[i] == null ? [] : [{ time: c.time, value: sma44[i] }]))
       );
-    }
-
-    this.rsiAt = new Map();
-    this.rsiMaAt = new Map();
-    const rsiData = [], maData = [];
-    this.candles.forEach((c, i) => {
-      if (rsi14[i] != null) {
-        this.rsiAt.set(c.time, rsi14[i]);
-        rsiData.push({ time: c.time, value: rsi14[i] });
-      } else {
-        // whitespace point for the RSI warm-up bars: it occupies no pixels but keeps
-        // this chart's logical index space identical to the price chart above it —
-        // without it the shared time axes and the mirrored crosshair sat 14 bars apart
-        rsiData.push({ time: c.time });
-      }
-      if (rsiMa14[i] != null) {
-        this.rsiMaAt.set(c.time, rsiMa14[i]);
-        maData.push({ time: c.time, value: rsiMa14[i] });
-      }
-    });
-    this.rsiSeries.setData(rsiData);
-    this.rsiMaSeries.setData(maData);
-    this.lastRsiPoint = rsiData.length
-      ? { time: rsiData[rsiData.length - 1].time, rsi: rsiData[rsiData.length - 1].value,
-          ma: maData.length ? maData[maData.length - 1].value : null }
-      : null;
-
-    if (this.spreadSeries) {
-      // spread % = (SMA 9 - SMA 44) / SMA 44 * 100 from the SAME arrays the lines plot
-      const sp = TL.spreadPct(sma9, sma44);
-      this.spreadAt = new Map();
-      const spData = this.candles.map((c, i) => {
-        if (sp[i] == null) return { time: c.time };      // warm-up: keeps the logical index space aligned
-        this.spreadAt.set(c.time, { pct: sp[i], fast: sma9[i], slow: sma44[i] });
-        return { time: c.time, value: sp[i], color: sp[i] >= 0 ? '#26a69a' : '#ef5350' };
-      });
-      this.spreadSeries.setData(spData);
     }
 
     if (this.ceSeries) {
@@ -1428,22 +1277,9 @@ class Panel {
     }
 
     this.drawLegend(this.candles[this.candles.length - 1]);
-    this.drawRsiLegend(this.lastRsiPoint);
-    this.drawSpreadLegend(null);
     this.drawOiLegend(null);
     this.loadLines();                          // this instrument / date / panel's saved trend lines
-    const rescaled = this.syncScaleWidths();   // equal plot widths ⇒ aligned time axes
-    if (fit !== false) {
-      const fitAll = () => {
-        this.chart.timeScale().fitContent();
-        this.rsiChart.timeScale().fitContent();
-        if (this.spreadChart) this.spreadChart.timeScale().fitContent();
-      };
-      fitAll();
-      // a scale resize re-anchors the view after this tick — refit once it has
-      // landed, so the session still starts at bar 0 (no left-edge crop at load)
-      if (rescaled) requestAnimationFrame(fitAll);
-    }
+    if (fit !== false) this.chart.timeScale().fitContent();
   }
 
   /** HTF option-chain readout: the CE and PE open-interest change of the hovered candle (latest candle at rest). */
@@ -1463,38 +1299,6 @@ class Panel {
       '<span>CE OI change <b class="ce-v">' + TF_.fmtFull(p.dce) + '</b></span>' +
       '<span>PE OI change <b class="pe-v">' + TF_.fmtFull(p.dpe) + '</b></span>' +
       '<span class="hint">' + (p.minutes === 1 ? 'the minute ending here' : 'sum of ' + p.minutes + ' minutes in this candle') + '</span>';
-  }
-
-  /** LTF spread readout: the hovered candle's SMA 9 / SMA 44 and their % distance (last candle at rest). */
-  drawSpreadLegend(time) {
-    const el = this.spreadLegendEl;
-    if (!el) return;
-    let t = time, p = t ? this.spreadAt.get(t) : null;
-    if (!p) {                                    // at rest / warm-up: latest candle that has a value
-      for (let i = this.candles.length - 1; i >= 0 && !p; i--) {
-        const q = this.spreadAt.get(this.candles[i].time);
-        if (q) { p = q; t = this.candles[i].time; }
-      }
-    }
-    if (!p) { el.innerHTML = '<span>SMA 9 / SMA 44 <b>—</b></span>'; return; }
-    const d = this.decimals;
-    el.innerHTML =
-      '<span class="t">' + fmtTime.format(new Date(t * 1000)) + '</span>' +
-      '<span>SMA 9 <b>' + p.fast.toFixed(d) + '</b></span>' +
-      '<span>SMA 44 <b>' + p.slow.toFixed(d) + '</b></span>' +
-      '<span>Spread <b class="' + (p.pct >= 0 ? 'pos' : 'neg') + '">' + (p.pct > 0 ? '+' : '') + p.pct.toFixed(3) + '%</b></span>';
-  }
-
-  drawRsiLegend(point) {
-    if (!point || point.rsi == null) {
-      this.rsiLegendEl.innerHTML = '<span>RSI 14 <b>—</b></span><span>SMA 14 <b>—</b></span>';
-      return;
-    }
-    const t = fmtTime.format(new Date(point.time * 1000));
-    this.rsiLegendEl.innerHTML =
-      '<span class="t">' + t + '</span>' +
-      '<span>RSI 14 <b class="rsi-v">' + point.rsi.toFixed(2) + '</b></span>' +
-      '<span>SMA 14 <b class="ma-v">' + (point.ma == null ? '—' : point.ma.toFixed(2)) + '</b></span>';
   }
 
   drawLegend(bar) {
@@ -1517,6 +1321,7 @@ class Panel {
 const app = {
   symbol: '', date: '', confirmOn: true, ltfOn: true,
   strategy: REGISTRY.enabled[0] || null,                    // name of the strategy on screen (config/strategies.json)
+  replay: null,                                            // bar replay: null, or { time (last tick shown, null until a start candle is chosen), armed, timer }
   drawArmed: false,                                        // the Trend line tool is waiting for its two clicks
   parallelArmed: false, parallelPanel: null,               // the Parallel tool is waiting for its click (on the panel that owns the selected line)
   lines: (() => { try { return TL_.loadAll(window.localStorage); } catch (e) { return {}; } })(),   // saved trend lines by instrument | date | panel
@@ -1690,9 +1495,7 @@ function containingCandle(panel, t) {
 function mirrorCrosshair(from, to) {
   const atRest = () => {
     to.chart.clearCrosshairPosition();
-    to.rsiChart.clearCrosshairPosition();
     to.drawLegend(to.candles[to.candles.length - 1]);
-    to.drawRsiLegend(to.lastRsiPoint);
     to.drawConfirmLegend(to.key === 'htf' ? to.lastState : to.lastLtfState, to.key === 'htf');
   };
   const apply = (param) => {
@@ -1700,17 +1503,11 @@ function mirrorCrosshair(from, to) {
     const c = containingCandle(to, param.time);
     if (!c) { atRest(); return; }
     to.chart.setCrosshairPosition(c.close, c.time, to.series);
-    const v = to.rsiAt.get(c.time);
-    if (v == null) to.rsiChart.clearCrosshairPosition();
-    else to.rsiChart.setCrosshairPosition(v, c.time, to.rsiSeries);
     to.drawLegend(c);
-    to.drawRsiLegend(v == null ? to.lastRsiPoint
-                               : { time: c.time, rsi: v, ma: to.rsiMaAt.get(c.time) });
     if (to.key === 'htf') to.drawConfirmLegend(to.states.get(c.time + to.tfSec), true);
     else to.drawConfirmLegend(to.ltfBands.get(c.time), false);
   };
   from.chart.subscribeCrosshairMove(apply);
-  from.rsiChart.subscribeCrosshairMove(apply);
 }
 mirrorCrosshair(htfPanel, ltfPanel);
 mirrorCrosshair(ltfPanel, htfPanel);
@@ -1758,22 +1555,27 @@ function confirmFilterKey(cfg) {
   const part = (c) => !c || c.mode === 'off' ? 'off'
     : c.mode === 'error' ? 'error|' + c.problems.join(';')
     : 'active|' + JSON.stringify(c.filter);
-  return part(cfg) + '#' + part(cfg.rsi) + '#' + part(cfg.oi);   // slope + rsi + oi sections all in the key
+  return part(cfg) + '#' + part(cfg.rsi) + '#' + part(cfg.oi) + '#' + part(cfg.oiInv);   // slope + rsi + oi + inverse oi sections all in the key
 }
 
 /** §6.9 — evaluated once per (symbol, date, htfSec, filter); interactions never recompute. */
 function getStates(htfCandles, htfSec, sessionEndTick, filterBase) {
   const key = app.symbol + '|' + app.date + '|' + htfSec + '|' + confirmFilterKey(filterBase);
-  if (confirmCache.has(key)) return confirmCache.get(key);
+  const replaying = !!(app.replay && app.replay.time != null);      // every replay step has different candles: never cache
+  if (!replaying && confirmCache.has(key)) return confirmCache.get(key);
   // the OI-change gate needs this session's CE / PE open-interest change per HTF candle (src/oi-flow.js)
   let filterCfg = filterBase;
-  if (filterBase && filterBase.oi && filterBase.oi.mode === 'active') {
+  const oiOn = filterBase && ((filterBase.oi && filterBase.oi.mode === 'active') ||
+                              (filterBase.oiInv && filterBase.oiInv.mode === 'active'));
+  if (oiOn) {
     const t = getTicks(app.symbol, app.date);
     const perCandle = TF_.changePerCandle(t && t.meta.flow, htfCandles, htfSec).map((a) => (a ? { dce: a.dce, dpe: a.dpe } : null));
-    filterCfg = Object.assign({}, filterBase, { oi: Object.assign({}, filterBase.oi, { perCandle }) });
+    filterCfg = Object.assign({}, filterBase);
+    if (filterBase.oi && filterBase.oi.mode === 'active') filterCfg.oi = Object.assign({}, filterBase.oi, { perCandle });
+    if (filterBase.oiInv && filterBase.oiInv.mode === 'active') filterCfg.oiInv = Object.assign({}, filterBase.oiInv, { perCandle });
   }
   const v = TC.evaluate(htfCandles, { htfSec, sessionEndTick, filter: filterCfg });
-  confirmCache.set(key, v);
+  if (!replaying) confirmCache.set(key, v);
   return v;
 }
 
@@ -1897,6 +1699,10 @@ function applyConfirmation() {
     const STRATEGY = SEL.trade;
     const signals = TS.signalsFor(SEL, { chain, candles: ltfPanel.candles, rsiArray: TC.rsiArray });
     const sim = TT.simulateTrades(signals, ticks, ltfPanel.candles, ltfSec, STRATEGY.cfg);
+    const replaying = !!(app.replay && app.replay.time != null);
+    // bar replay: a trade that has not hit its stop / target yet is still OPEN — the simulation would close it at the last price shown
+    const openTrades = replaying ? sim.trades.filter((t) => t.exitReason === 'EOD') : [];
+    if (replaying) sim.trades = sim.trades.filter((t) => t.exitReason !== 'EOD');
     const sum = TT.summarize(sim.trades);
     const cs = ltfPanel.candles;
     const snap = (t) => {                       // the candle a time falls in (markers sit on candle times)
@@ -1906,15 +1712,27 @@ function applyConfirmation() {
     };
     const d = ltfPanel.decimals;
     const sg = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2);
+    // every trade: an arrow + emoji label on the ENTRY candle, an emoji result label on the EXIT candle, and (via setTradeBoxes) a coloured
+    // background — the entry / exit candle columns and the position box with its entry / target / stop lines
+    const tradeBoxes = [];
+    const entryMarker = (t, open) => ({ time: snap(t.entryTime), position: t.side === 'LONG' ? 'belowBar' : 'aboveBar', shape: t.side === 'LONG' ? 'arrowUp' : 'arrowDown',
+                                        color: t.side === 'LONG' ? '#00e5ff' : '#ffab00', text: TV.entryLabel(t.side, t.entryPrice, d, open) });
     for (const t of sim.trades) {
-      ltfMarkers.push({ time: snap(t.entryTime), position: 'inBar', shape: 'square', color: '#ffffff',
-                     text: (t.side === 'LONG' ? 'LONG @' : 'SHORT @') + t.entryPrice.toFixed(d) });
+      ltfMarkers.push(entryMarker(t, false));
       ltfMarkers.push({ time: snap(t.exitTime), position: 'inBar', shape: 'circle', color: t.pnl > 0 ? '#00e676' : t.pnl < 0 ? '#ff1744' : '#9e9e9e',
-                     text: (t.exitReason === 'TARGET' ? 'TP ' : t.exitReason === 'STOP' ? 'SL ' : t.exitReason === 'HARD' ? 'HARD ' : 'EOD ') + sg(t.pnl) });
+                     text: TV.exitLabel(t.exitReason, t.pnl) });
+      tradeBoxes.push({ side: t.side, entryTime: snap(t.entryTime), exitTime: snap(t.exitTime), entry: t.entryPrice, stop: t.stop, target: t.target, pnl: t.pnl, open: false });
     }
+    for (const t of openTrades) {
+      ltfMarkers.push(entryMarker(t, true));
+      tradeBoxes.push({ side: t.side, entryTime: snap(t.entryTime), exitTime: null, entry: t.entryPrice, stop: t.stop, target: t.target, pnl: 0, open: true });
+    }
+    ltfPanel.setTradeBoxes(tradeBoxes);
     const pf = (v) => (v === null ? '—' : v === Infinity ? '∞' : v.toFixed(2));
     // browser console (F12 / Cmd+Option+J): the same numbers as the badge plus a trade-by-trade table
-    if (sum.trades) {
+    if (replaying) {
+      // no console output while replaying (it would write a table at every step)
+    } else if (sum.trades) {
       const hm = (t) => fmtTime.format(new Date(t * 1000));
       console.groupCollapsed('[' + SEL.name + '] ' + app.symbol + ' ' + app.date + ' ' + TF_LABELS[ltfSec] + ' — ' + sum.trades + ' trades, ' +
         sum.wins + ' wins / ' + sum.losses + ' losses, hit ' + (sum.winRate * 100).toFixed(1) + '%, P&L ' + sg(sum.totalPnl) + ' pts');
@@ -1996,6 +1814,7 @@ ltfPanel.tfEl.addEventListener('change', () => {
   htfPanel.render(true);
   updateLockChip();
   applyConfirmation();
+  rpUpdateUi();
 });
 
 /* ... and vice versa, so the pair can never drift apart. */
@@ -2006,6 +1825,7 @@ htfPanel.tfEl.addEventListener('change', () => {
   ltfPanel.render(true);
   updateLockChip();
   applyConfirmation();
+  rpUpdateUi();
 });
 
 /* HTF Confirmation ON/OFF — clears visuals only; never touches series data. */
@@ -2026,6 +1846,147 @@ strategyEl.addEventListener('change', () => {
   applyConfirmation();
 });
 
+/* ---------------- bar replay (src/replay.js) ----------------
+   Click "Bar replay", then click a candle on either chart: the session is shown as if it were happening up to that candle.
+   Play / pause, step one LTF candle back or forward, change the speed, or drag the slider. Both charts, every indicator, the HTF
+   patterns, the C1-C6 arrows and the strategy trades are rebuilt from ONLY the ticks up to the replay time (a trade that has not
+   hit its stop or target yet shows as open). Exit returns to the whole session. */
+const rpEl = {
+  enter: document.getElementById('rp-enter'), box: document.getElementById('rp-controls'),
+  back: document.getElementById('rp-back'), play: document.getElementById('rp-play'), fwd: document.getElementById('rp-fwd'),
+  speed: document.getElementById('rp-speed'), win: document.getElementById('rp-window'), slider: document.getElementById('rp-slider'), label: document.getElementById('rp-label'),
+  exit: document.getElementById('rp-exit'),
+};
+const RP_SPEEDS = [['1×', 1000], ['2×', 500], ['5×', 200], ['10×', 100], ['25×', 40]];
+RP_SPEEDS.forEach(([name, ms], i) => {
+  const o = document.createElement('option'); o.value = String(ms); o.textContent = name; if (i === 2) o.selected = true; rpEl.speed.appendChild(o);
+});
+rpEl.speed.value = String(RP_SPEEDS[2][1]);
+const RP_WINDOWS = [60, 120, 240, 500];
+RP_WINDOWS.forEach((n) => { const o = document.createElement('option'); o.value = String(n); o.textContent = n + ' bars'; rpEl.win.appendChild(o); });
+rpEl.win.value = '120';
+
+/** geometry of the session on screen: first / last tick, LTF candle length, number of LTF candles */
+function rpGeom() {
+  const f = getFullTicks(app.symbol, app.date);
+  if (!f || !f.times.length) return null;
+  const t0 = f.times[0], last = f.times[f.times.length - 1], tf = ltfPanel.tfSec;
+  return { t0, last, tf, kMax: Math.max(1, Math.ceil((last - t0 + 1) / tf)) };
+}
+const rpTimeForK = (g, k) => Math.min(g.last, TR.closeTimeOfCandle(g.t0, g.tf, k));
+const rpKNow = (g) => (app.replay.time >= g.last ? g.kMax : Math.max(1, Math.min(g.kMax, TR.candleCountAt(g.t0, g.tf, app.replay.time))));
+
+function rpUpdateUi() {
+  const r = app.replay;
+  rpEl.enter.classList.toggle('on', !!r);
+  rpEl.box.hidden = !r;
+  if (!r) return;
+  if (r.time == null) {
+    rpEl.label.textContent = 'click a candle on either chart to start (Esc cancels)';
+    rpEl.slider.disabled = true;
+    return;
+  }
+  const g = rpGeom();
+  if (!g) return;
+  const k = rpKNow(g);
+  rpEl.slider.disabled = false;
+  rpEl.slider.max = String(g.kMax);
+  rpEl.slider.value = String(k);
+  rpEl.play.innerHTML = r.timer ? '&#9208;' : '&#9654;';
+  rpEl.label.textContent = fmtTime.format(new Date(r.time * 1000)) + ' IST · candle ' + k + ' / ' + g.kMax + ' (' + TF_LABELS[g.tf] + ')';
+}
+
+/**
+ * Frame the chart on the replay: a FIXED number of candles is in view (the LTF shows `bars`, the HTF the same stretch of time), so the
+ * candles keep a readable width from the first step on. Until that many candles exist they start at the left edge and fill toward the
+ * right; after that the view follows the newest candle, which sits near the right edge.
+ */
+function rpFollow(p) {
+  const n = p.candles.length;
+  if (!n) return;
+  const bars = Number(rpEl.win.value) || 120;
+  const ratio = Math.max(1, Math.round(p.tfSec / ltfPanel.tfSec));          // 1 for the LTF, 5 for the HTF
+  const w = p === ltfPanel ? bars : Math.max(24, Math.round(bars / ratio));
+  const from = Math.max(-1, n - w), to = Math.max(n - 1, w - 2) + 2;
+  p.chart.timeScale().setVisibleLogicalRange({ from, to });
+}
+
+/** redraw both panels and everything derived from them for the current replay time */
+function rpShow(fit) {
+  for (const p of panels) p.render(fit);
+  applyConfirmation();
+  for (const p of panels) rpFollow(p);
+  rpUpdateUi();
+}
+function rpSetK(k, fit) {
+  const g = rpGeom();
+  if (!g || !app.replay) return;
+  app.replay.time = rpTimeForK(g, Math.max(1, Math.min(g.kMax, k)));
+  rpShow(fit);
+}
+function rpStartFromClick(clickedTime) {
+  const g = rpGeom();
+  if (!g || !app.replay) return;
+  app.replay.armed = false;
+  rpSetK(Math.floor((clickedTime - g.t0) / g.tf) + 1, false);
+}
+function rpPause() {
+  if (app.replay && app.replay.timer) { clearInterval(app.replay.timer); app.replay.timer = null; }
+  rpUpdateUi();
+}
+function rpStep(d) {
+  const g = rpGeom();
+  if (!g || !app.replay || app.replay.time == null) return;
+  const k = rpKNow(g) + d;
+  if (k > g.kMax) { rpPause(); return; }                                             // reached the end of the session
+  rpSetK(k, false);
+}
+function rpPlay() {
+  const r = app.replay;
+  if (!r || r.time == null) return;
+  if (r.timer) { rpPause(); return; }
+  const g = rpGeom();
+  if (g && rpKNow(g) >= g.kMax) rpSetK(1, false);                                      // at the end: play again from the start
+  r.timer = setInterval(() => rpStep(1), Number(rpEl.speed.value));
+  rpUpdateUi();
+}
+function rpEnter() {
+  if (app.replay) { rpExit(); return; }
+  if (!rpGeom()) return;
+  app.replay = { time: null, armed: true, timer: null };
+  rpUpdateUi();
+}
+/** leave replay without redrawing (used when the instrument / date changes and a redraw follows anyway) */
+function rpReset() {
+  if (app.replay && app.replay.timer) clearInterval(app.replay.timer);
+  app.replay = null;
+  rpUpdateUi();
+}
+function rpExit() {
+  const wasShowing = !!(app.replay && app.replay.time != null);
+  rpReset();
+  if (wasShowing) refresh();                                                         // whole session again, fitted
+}
+rpEl.enter.addEventListener('click', rpEnter);
+rpEl.exit.addEventListener('click', rpExit);
+rpEl.play.addEventListener('click', rpPlay);
+rpEl.back.addEventListener('click', () => { rpPause(); rpStep(-1); });
+rpEl.fwd.addEventListener('click', () => { rpPause(); rpStep(1); });
+rpEl.speed.addEventListener('change', () => { if (app.replay && app.replay.timer) { rpPause(); rpPlay(); } });
+rpEl.win.addEventListener('change', () => { if (app.replay && app.replay.time != null) for (const p of panels) rpFollow(p); });
+rpEl.slider.addEventListener('input', () => { rpPause(); rpSetK(Number(rpEl.slider.value), false); });
+document.addEventListener('keydown', (e) => {
+  if (!app.replay) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (e.key === 'Escape') { rpExit(); }
+  else if (app.replay.time == null) return;
+  else if (e.key === ' ') { e.preventDefault(); rpPlay(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); rpPause(); rpStep(1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); rpPause(); rpStep(-1); }
+});
+window.__replayApi = { enter: rpEnter, startFromClick: rpStartFromClick, step: rpStep, setK: rpSetK, exit: rpExit, play: rpPlay, pause: rpPause, state: () => app.replay };   // used by the tests / diagnostics
+
 function refresh() {
   for (const p of panels) p.render(true);
   renderMeta();
@@ -2035,11 +1996,13 @@ function refresh() {
 }
 
 instrumentEl.addEventListener('change', () => {
+  rpReset();
   app.symbol = instrumentEl.value;
   fillDates();
   refresh();
 });
 dateEl.addEventListener('change', () => {
+  rpReset();
   app.date = dateEl.value;
   refresh();
 });

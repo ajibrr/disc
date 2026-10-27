@@ -295,8 +295,7 @@ console.log('\nT100 — real data: every simulated trade is re-checked tick by t
         if (!ec || ec.open !== t.entryPrice) sane = false;
         const risk = sig.eDistance;
         const stop = long ? t.entryPrice - strat.cfg.stopMultiple * risk : t.entryPrice + strat.cfg.stopMultiple * risk;
-        const target = strat.cfg.targetMode === 'previous_extreme' ? (long ? sig.backHigh : sig.backLow)       // the signal's own back high / low
-          : (long ? t.entryPrice + strat.cfg.targetMultiple * risk : t.entryPrice - strat.cfg.targetMultiple * risk);
+        const target = long ? t.entryPrice + strat.cfg.targetMultiple * risk : t.entryPrice - strat.cfg.targetMultiple * risk;
         if (!near(stop, t.stop) || !near(target, t.target)) sane = false;
         // independent tick scan between the entry candle open and the recorded exit
         const i0 = ticks.times.findIndex((x) => x >= t.entryTime);
@@ -400,41 +399,32 @@ console.log('\nT102 \u2014 session rules: no entry from the cutoff, hard exit at
 }
 
 /* ------------------------------------------------------------------ */
-console.log('\nT135 — target_mode "previous_extreme": the target is the signal\'s back high (long) / back low (short)');
+console.log('\nT135 — the target is always entry +/- target_multiple x risk (the previous_extreme target mode is gone)');
 {
   const cs = [0, 10, 20, 30].map((t) => ({ time: t, open: 100, high: 101, low: 99, close: 100 }));
-  const mkCfg = (patch) => TT.normalizeStrategy(Object.assign({ enabled: true, stop_multiple: 1, target_mode: 'previous_extreme', round_trip_cost_points: 0 }, patch));
+  const mkCfg = (patch) => TT.normalizeStrategy(Object.assign({ enabled: true, stop_multiple: 1, target_multiple: 2, round_trip_cost_points: 0 }, patch));
   const cfgOf = (patch) => mkCfg(patch).cfg;
-  ok(mkCfg({}).mode === 'active' && mkCfg({}).cfg.targetMode === 'previous_extreme', 'previous_extreme needs no target_multiple');
-  ok(TT.normalizeStrategy({ enabled: true, stop_multiple: 1, target_multiple: 2, round_trip_cost_points: 0 }).cfg.targetMode === 'multiple', 'absent target_mode = the original multiple-of-risk target');
-  ok(mkCfg({ target_mode: 'sky' }).mode === 'error' && mkCfg({ target_mode: 'sky' }).problems.some((p) => p.indexOf('target_mode') >= 0), 'an unknown target_mode is an error');
-  ok(mkCfg({ target_mode: 'multiple' }).mode === 'error', 'target_mode "multiple" still needs target_multiple');
-  ok(mkCfg({ target_multiple: -1 }).mode === 'error', 'a target_multiple that is present must still be valid');
+  ok(mkCfg({}).mode === 'active' && mkCfg({}).cfg.targetMode === undefined, 'target_multiple alone is a complete target rule');
+  ok(mkCfg({ target_mode: 'multiple' }).mode === 'active', 'a leftover target_mode "multiple" is still accepted');
+  ok(mkCfg({ target_mode: 'previous_extreme' }).mode === 'error' && mkCfg({ target_mode: 'previous_extreme' }).problems.some((p) => p.indexOf('target_mode') >= 0), 'target_mode "previous_extreme" is rejected');
+  ok(mkCfg({ target_multiple: undefined }).mode === 'error', 'target_multiple is required');
+  ok(mkCfg({ target_multiple: -1 }).mode === 'error', 'a target_multiple that is present must be valid');
 
-  // long: entry 100 (open of the candle at t = 10), risk 5 -> stop 95, target = backHigh 110 (not entry + 2 x risk = 110 here, so use 117)
+  // long: entry 100, risk 5 -> stop 95, target 110 whatever backHigh says
   const up = { times: [0, 5, 10, 15, 20, 25, 30], prices: [100, 100, 100, 104, 111, 117, 120] };
   let r = TT.simulateTrades([{ time: 0, pattern: 'A', eDistance: 5, backHigh: 117 }], up, cs, 10, cfgOf({}));
-  ok(r.trades.length === 1 && r.trades[0].target === 117 && r.trades[0].stop === 95 && r.trades[0].exitReason === 'TARGET' && r.trades[0].exitPrice === 117 && r.trades[0].pnl === 17,
-     'long: target = back high (117), stop = entry - 1 x risk (95), filled at the back high, +17');
-  const mult = TT.simulateTrades([{ time: 0, pattern: 'A', eDistance: 5, backHigh: 117 }], up, cs, 10, cfgOf({ target_mode: 'multiple', target_multiple: 2 }));
-  ok(mult.trades[0].target === 110, 'the same signal in "multiple" mode keeps entry + 2 x risk (110)');
-  // short: entry 100, stop 105, target = backLow 88
+  ok(r.trades.length === 1 && r.trades[0].target === 110 && r.trades[0].stop === 95 && r.trades[0].exitReason === 'TARGET' && r.trades[0].pnl === 10, 'long: target = entry + 2 x risk (110), back high ignored');
+  r = TT.simulateTrades([{ time: 0, pattern: 'A', eDistance: 5 }], up, cs, 10, cfgOf({}));
+  ok(r.trades.length === 1 && r.trades[0].target === 110, 'a signal without a back high still trades');
+  // short: entry 100, stop 105, target 90
   const dn = { times: [0, 5, 10, 15, 20, 25, 30], prices: [100, 100, 100, 96, 90, 88, 85] };
   r = TT.simulateTrades([{ time: 0, pattern: 'B', eDistance: 5, backLow: 88 }], dn, cs, 10, cfgOf({}));
-  ok(r.trades.length === 1 && r.trades[0].target === 88 && r.trades[0].stop === 105 && r.trades[0].exitReason === 'TARGET' && r.trades[0].pnl === 12, 'short: target = back low (88), stop = entry + 1 x risk (105), +12');
-  // stop first
+  ok(r.trades.length === 1 && r.trades[0].target === 90 && r.trades[0].stop === 105 && r.trades[0].exitReason === 'TARGET' && r.trades[0].pnl === 10, 'short: target = entry - 2 x risk (90)');
   const dn2 = { times: [0, 5, 10, 15, 20, 25, 30], prices: [100, 100, 100, 106, 90, 88, 85] };
-  r = TT.simulateTrades([{ time: 0, pattern: 'B', eDistance: 5, backLow: 88 }], dn2, cs, 10, cfgOf({}));
-  ok(r.trades[0].exitReason === 'STOP' && r.trades[0].pnl === -5, 'the stop is unchanged: a rise to 106 stops the short out for -1 R');
-  // skipped
-  r = TT.simulateTrades([{ time: 0, pattern: 'A', eDistance: 5, backHigh: 99 }], up, cs, 10, cfgOf({}));
-  ok(r.trades.length === 0 && r.skipped[0].reason === 'target-behind-entry', 'a long whose back high is not above the entry is skipped (target-behind-entry)');
-  r = TT.simulateTrades([{ time: 0, pattern: 'B', eDistance: 5, backLow: 101 }], dn, cs, 10, cfgOf({}));
-  ok(r.trades.length === 0 && r.skipped[0].reason === 'target-behind-entry', 'a short whose back low is not below the entry is skipped');
-  r = TT.simulateTrades([{ time: 0, pattern: 'A', eDistance: 5 }], up, cs, 10, cfgOf({}));
-  ok(r.trades.length === 0 && r.skipped[0].reason === 'no-target', 'a signal without a back high / low has no target and is skipped (no-target)');
-  const shipped = Object.assign({ enabled: true }, JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'strategies.json'), 'utf8')).strategies.SB_Bhanusali.trade);
-  ok(TT.normalizeStrategy(shipped).cfg.targetMode === 'previous_extreme', 'shipped SB_Bhanusali: target_mode is previous_extreme');
+  r = TT.simulateTrades([{ time: 0, pattern: 'B', eDistance: 5 }], dn2, cs, 10, cfgOf({}));
+  ok(r.trades[0].exitReason === 'STOP' && r.trades[0].pnl === -5, 'a rise to 106 stops the short out for -1 R');
+  const shippedTrade = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'strategies.json'), 'utf8')).strategies.SB_Bhanusali.trade;
+  ok(shippedTrade.target_mode === undefined && TT.normalizeStrategy(Object.assign({ enabled: true }, shippedTrade)).mode === 'active', 'shipped SB_Bhanusali: no target_mode, target from target_multiple');
 }
 
 /* ------------------------------------------------------------------ */

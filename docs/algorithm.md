@@ -55,7 +55,7 @@ Only a candle with all six (`C1+C2+C3+C4+C5+C6`) is a signal — every trade the
 | Positions | one at a time; a signal whose entry falls inside an open trade is skipped |
 | Risk unit | **E candle distance** (points) |
 | Stop | entry ∓ `stop_multiple` (1) × E distance — long below, short above |
-| Target | **`target_mode: previous_extreme` (shipped):** long = the **highest high**, short = the **lowest low** of the 20 candles before the E candle (C5's own back window, `back_candles`). Signals whose target is not beyond the entry price are skipped. `target_mode: multiple` gives entry ± `target_multiple` (2) × E distance instead |
+| Target | long = entry + `target_multiple` × E distance, short = entry − `target_multiple` × E distance, from `config/strategies.json` only (C5's back high / low is a filter, not a target) |
 | Which is hit first | second-by-second ticks are replayed after the entry |
 | Hard exit | **15:19 IST** (`hard_exit_at`), at the first tick at or after that time |
 | Fill / cost | exactly at the level; `round_trip_cost_points` (0) per trade |
@@ -79,4 +79,3 @@ open web/index.html         # the charts
 | Entry, exit, statistics, results | [strategy.md](strategy.md) |
 | Findings and next steps | [analysis.md](analysis.md) |
 | Why it was built this way | [design/](design/) |
-| TradingView version of all of this | [../pine/htf_ltf_strategy.pine](../pine/htf_ltf_strategy.pine) |

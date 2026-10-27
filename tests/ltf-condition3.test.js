@@ -69,7 +69,12 @@ console.log('\nT65 — config: off / active / error contract');
   }
   const shipped = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'ltf.json'), 'utf8'));
   const sc = TL.normalizeCondition3(shipped);
-  ok(sc.mode === 'active' && sc.cfg.minPct === 0 && sc.cfg.maxPct === 0.02, 'shipped config/ltf.json = 0 .. 0.020 %, active');
+  // Pin to whatever the shipped JSON says (not a literal), so retuning the band in
+  // config/ltf.json doesn't break this test — it still proves the round-trip works.
+  const sMin = shipped.condition_3_spread_band.min_pct;
+  const sMax = shipped.condition_3_spread_band.max_pct;
+  ok(sc.mode === 'active' && sc.cfg.minPct === sMin && sc.cfg.maxPct === sMax,
+     'shipped config/ltf.json = ' + sMin + ' .. ' + sMax + ' %, active');
   ok(TL.normalizeCondition1(shipped).mode === 'active' && TL.normalizeCondition2(shipped).mode === 'active',
      'Conditions 1 and 2 still validate alongside it');
 }
